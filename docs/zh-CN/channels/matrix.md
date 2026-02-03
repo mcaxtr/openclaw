@@ -136,12 +136,12 @@ E2EE 配置（启用端到端加密）：
   - `openclaw pairing list matrix`
   - `openclaw pairing approve matrix <CODE>`
 - 公开私信：`channels.matrix.dm.policy="open"` 加上 `channels.matrix.dm.allowFrom=["*"]`。
-- `channels.matrix.dm.allowFrom` 接受用户 ID 或显示名称。当目录搜索可用时，向导会将显示名称解析为用户 ID。
+- `channels.matrix.dm.allowFrom` 仅接受完整 Matrix 用户 ID（例如 `@user:server`）。向导仅在目录搜索得到唯一精确匹配时将显示名称解析为用户 ID。
 
 ## 房间（群组）
 
-- 默认：`channels.matrix.groupPolicy = "allowlist"`（需要提及）。使用 `channels.defaults.groupPolicy` 在未设置时覆盖默认值。
-- 使用 `channels.matrix.groups` 配置房间允许列表（房间 ID、别名或名称）：
+- 默认：`channels.matrix.groupPolicy = "allowlist"`（提及门控）。使用 `channels.defaults.groupPolicy` 在未设置时覆盖默认值。
+- 使用 `channels.matrix.groups` 配置房间允许列表（房间 ID 或别名；名称仅在目录搜索得到唯一精确匹配时解析为 ID）：
 
 ```json5
 {
@@ -159,11 +159,11 @@ E2EE 配置（启用端到端加密）：
 ```
 
 - `requireMention: false` 启用该房间的自动回复。
-- `groups."*"` 可以设置跨房间的提及要求默认值。
-- `groupAllowFrom` 限制哪些发送者可以在房间中触发机器人（可选）。
-- 每个房间的 `users` 允许列表可以进一步限制特定房间内的发送者。
-- 配置向导会提示输入房间允许列表（房间 ID、别名或名称），并在可能时解析名称。
-- 启动时，OpenClaw 将允许列表中的房间/用户名称解析为 ID 并记录映射；未解析的条目保持原样。
+- `groups."*"` 可以设置跨房间的提及门控默认值。
+- `groupAllowFrom` 限制哪些发送者可以在房间中触发机器人（需完整 Matrix 用户 ID）。
+- 每个房间的 `users` 允许列表可以进一步限制特定房间内的发送者（需完整 Matrix 用户 ID）。
+- 配置向导会提示输入房间允许列表（房间 ID、别名或名称），仅在精确且唯一匹配时解析名称。
+- 启动时，OpenClaw 将允许列表中的房间/用户名称解析为 ID 并记录映射；未解析的条目不会参与允许列表匹配。
 - 默认自动加入邀请；使用 `channels.matrix.autoJoin` 和 `channels.matrix.autoJoinAllowlist` 控制。
 - 要**禁止所有房间**，设置 `channels.matrix.groupPolicy: "disabled"`（或保持空的允许列表）。
 - 旧版键名：`channels.matrix.rooms`（与 `groups` 相同的结构）。
@@ -208,9 +208,9 @@ E2EE 配置（启用端到端加密）：
 - `channels.matrix.textChunkLimit`：出站文本分块大小（字符）。
 - `channels.matrix.chunkMode`：`length`（默认）或 `newline` 在长度分块前按空行（段落边界）分割。
 - `channels.matrix.dm.policy`：`pairing | allowlist | open | disabled`（默认：pairing）。
-- `channels.matrix.dm.allowFrom`：私信允许列表（用户 ID 或显示名称）。`open` 需要 `"*"`。向导会在可能时将名称解析为 ID。
+- `channels.matrix.dm.allowFrom`：私信允许列表（需完整 Matrix 用户 ID）。`open` 需要 `"*"`。向导在可能时将名称解析为 ID。
 - `channels.matrix.groupPolicy`：`allowlist | open | disabled`（默认：allowlist）。
-- `channels.matrix.groupAllowFrom`：群组消息的允许发送者列表。
+- `channels.matrix.groupAllowFrom`：群组消息的允许发送者列表（需完整 Matrix 用户 ID）。
 - `channels.matrix.allowlistOnly`：强制私信 + 房间使用允许列表规则。
 - `channels.matrix.groups`：群组允许列表 + 每个房间的设置映射。
 - `channels.matrix.rooms`：旧版群组允许列表/配置。
