@@ -54,7 +54,9 @@ export function createSpoolWatcher(params: SpoolWatcherParams): SpoolWatcher {
     }
     // Debounce to avoid processing the same file multiple times
     processTimer = setTimeout(() => {
-      void processQueue();
+      processQueue().catch((err) => {
+        log.error(`queue processing failed: ${String(err)}`);
+      });
     }, 100);
   };
 

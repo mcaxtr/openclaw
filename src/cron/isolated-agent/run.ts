@@ -45,10 +45,19 @@ export async function runCronIsolatedAgentTurn(params: {
   const delivery = job.delivery;
 
   // Resolve delivery settings: payload takes precedence over job.delivery
-  // job.delivery.mode === "announce" enables delivery in "auto" mode (respects skip logic)
-  // job.delivery.mode === "none" disables delivery entirely
+  // job.delivery.mode === "announce":
+  //   - with explicit `to`: use auto mode (undefined) to respect skip logic
+  //   - without `to`: use explicit mode (true) to attempt delivery via channel resolution
+  // job.delivery.mode === "none" disables delivery entirely (false)
+  const resolvedTo = payload?.to ?? delivery?.to;
   const deliverFromJobDelivery =
-    delivery?.mode === "announce" ? undefined : delivery?.mode === "none" ? false : undefined;
+    delivery?.mode === "announce"
+      ? resolvedTo
+        ? undefined // auto mode with skip logic
+        : true // explicit mode for dynamic target resolution
+      : delivery?.mode === "none"
+        ? false
+        : undefined;
   const deliver = payload?.deliver ?? deliverFromJobDelivery;
   const channel = payload?.channel ?? delivery?.channel;
   const to = payload?.to ?? delivery?.to;

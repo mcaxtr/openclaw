@@ -101,9 +101,12 @@ export function registerSpoolEnqueueCommand(spool: Command) {
 
           if (opts.expiresIn) {
             const duration = parseDuration(opts.expiresIn);
-            if (duration) {
-              expiresAt = new Date(Date.now() + duration).toISOString();
+            if (duration === null) {
+              throw new Error(
+                `Invalid --expires-in value: "${opts.expiresIn}". Expected format like "1h", "30m", "5s", "500ms", "1d".`,
+              );
             }
+            expiresAt = new Date(Date.now() + duration).toISOString();
           }
 
           const delivery =
