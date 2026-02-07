@@ -44,6 +44,31 @@ export const spoolEventSchema = z
 
 export type SpoolEventSchemaType = z.infer<typeof spoolEventSchema>;
 
+export const SPOOL_PRIORITY_VALUES = ["low", "normal", "high", "critical"] as const;
+
+export const spoolEventCreateSchema = z
+  .object({
+    version: z.literal(1),
+    priority: spoolPrioritySchema.optional(),
+    maxRetries: z.number().int().min(0).optional(),
+    expiresAt: z.string().datetime().optional(),
+    payload: spoolPayloadSchema,
+  })
+  .strict();
+
+export type SpoolEventCreateSchemaType = z.infer<typeof spoolEventCreateSchema>;
+
+export function validateSpoolEventCreate(
+  data: unknown,
+): { valid: true; create: SpoolEventCreateSchemaType } | { valid: false; error: string } {
+  const result = spoolEventCreateSchema.safeParse(data);
+  if (result.success) {
+    return { valid: true, create: result.data };
+  }
+  const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+  return { valid: false, error: issues };
+}
+
 export function validateSpoolEvent(
   data: unknown,
 ): { valid: true; event: SpoolEventSchemaType } | { valid: false; error: string } {

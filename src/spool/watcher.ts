@@ -174,15 +174,22 @@ export function createSpoolWatcher(params: SpoolWatcherParams): SpoolWatcher {
     }
     running = true;
 
-    // Ensure directory exists
-    await ensureSpoolEventsDir();
+    try {
+      // Ensure directory exists
+      await ensureSpoolEventsDir();
 
-    // Start watching
-    watcher = chokidar.watch(eventsDir, {
-      ignoreInitial: false, // Process existing files on startup
-      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
-      usePolling: Boolean(process.env.VITEST),
-    });
+      // Start watching
+      watcher = chokidar.watch(eventsDir, {
+        ignoreInitial: false, // Process existing files on startup
+        awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
+        usePolling: Boolean(process.env.VITEST),
+      });
+    } catch (err) {
+      // Reset state on startup failure to allow recovery
+      running = false;
+      watcher = null;
+      throw err;
+    }
 
     watcher.on("add", (filePath) => {
       if (!running) {

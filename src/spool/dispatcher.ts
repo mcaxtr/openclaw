@@ -183,6 +183,18 @@ export async function dispatchSpoolEventFile(
     };
   }
 
+  // Validate that the event ID in the file matches the filename
+  // to prevent orphaned files and duplicate processing
+  if (result.event.id !== eventId) {
+    const error = `event ID mismatch: file "${eventId}.json" contains id "${result.event.id}"`;
+    await moveToDeadLetter(eventId, result.event, "invalid", error);
+    return {
+      status: "error",
+      eventId,
+      error,
+    };
+  }
+
   return dispatchSpoolEvent({
     cfg,
     deps,

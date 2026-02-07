@@ -4,7 +4,11 @@ import type { SpoolEventCreate, SpoolPriority } from "../../spool/types.js";
 import type { SpoolEvent } from "../../spool/types.js";
 import { danger } from "../../globals.js";
 import { defaultRuntime } from "../../runtime.js";
-import { validateSpoolEvent } from "../../spool/schema.js";
+import {
+  SPOOL_PRIORITY_VALUES,
+  validateSpoolEvent,
+  validateSpoolEventCreate,
+} from "../../spool/schema.js";
 import { createSpoolAgentTurn, createSpoolEvent, writeSpoolEvent } from "../../spool/writer.js";
 import { colorize, isRich, theme } from "../../terminal/theme.js";
 
@@ -55,8 +59,12 @@ export function registerSpoolEnqueueCommand(spool: Command) {
             event = data as SpoolEvent;
             await writeSpoolEvent(event);
           } else if (data.version === 1 && data.payload) {
-            // Create request
-            event = await createSpoolEvent(data as SpoolEventCreate);
+            // Create request - validate before creating
+            const createValidation = validateSpoolEventCreate(data);
+            if (!createValidation.valid) {
+              throw new Error(`Invalid create request: ${createValidation.error}`);
+            }
+            event = await createSpoolEvent(createValidation.create as SpoolEventCreate);
           } else if (data.kind === "agentTurn" && data.message) {
             // Just a payload
             event = await createSpoolEvent({
@@ -70,7 +78,13 @@ export function registerSpoolEnqueueCommand(spool: Command) {
           }
         } else {
           // Create from CLI options
-          const priority = (opts.priority ?? "normal") as SpoolPriority;
+          const priorityRaw = opts.priority ?? "normal";
+          if (!SPOOL_PRIORITY_VALUES.includes(priorityRaw)) {
+            throw new Error(
+              `Invalid --priority value: "${priorityRaw}". Must be one of: ${SPOOL_PRIORITY_VALUES.join(", ")}`,
+            );
+          }
+          const priority = priorityRaw as SpoolPriority;
           // Only set maxRetries if explicitly provided; otherwise leave undefined
           // so dispatcher uses cfg.spool.maxRetries (or its default of 3)
           let maxRetries: number | undefined;
