@@ -1,3 +1,7 @@
+/**
+ * Delivery target resolution for isolated agent turns.
+ */
+
 import type { ChannelId } from "../../channels/plugins/types.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { OutboundChannel } from "../../infra/outbound/targets.js";
@@ -13,23 +17,31 @@ import {
   resolveSessionDeliveryTarget,
 } from "../../infra/outbound/targets.js";
 
-export async function resolveDeliveryTarget(
-  cfg: OpenClawConfig,
-  agentId: string,
-  jobPayload: {
-    channel?: "last" | ChannelId;
-    to?: string;
-  },
-): Promise<{
+export type DeliveryTargetResult = {
   channel: Exclude<OutboundChannel, "none">;
   to?: string;
   accountId?: string;
   threadId?: string | number;
   mode: "explicit" | "implicit";
   error?: Error;
-}> {
-  const requestedChannel = typeof jobPayload.channel === "string" ? jobPayload.channel : "last";
-  const explicitTo = typeof jobPayload.to === "string" ? jobPayload.to : undefined;
+};
+
+/**
+ * Resolve the delivery target for an isolated agent turn.
+ *
+ * Uses the session's last channel/recipient if "last" is specified,
+ * or falls back to the configured default channel.
+ */
+export async function resolveDeliveryTarget(
+  cfg: OpenClawConfig,
+  agentId: string,
+  payload: {
+    channel?: "last" | ChannelId;
+    to?: string;
+  },
+): Promise<DeliveryTargetResult> {
+  const requestedChannel = typeof payload.channel === "string" ? payload.channel : "last";
+  const explicitTo = typeof payload.to === "string" ? payload.to : undefined;
   const allowMismatchedLastTo = requestedChannel === "last";
 
   const sessionCfg = cfg.session;

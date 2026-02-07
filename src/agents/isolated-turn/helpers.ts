@@ -1,3 +1,7 @@
+/**
+ * Helper functions for isolated agent turns.
+ */
+
 import {
   DEFAULT_HEARTBEAT_ACK_MAX_CHARS,
   stripHeartbeatToken,
@@ -11,6 +15,9 @@ type DeliveryPayload = {
   channelData?: Record<string, unknown>;
 };
 
+/**
+ * Extract a summary from agent output text, truncating if necessary.
+ */
 export function pickSummaryFromOutput(text: string | undefined) {
   const clean = (text ?? "").trim();
   if (!clean) {
@@ -20,6 +27,9 @@ export function pickSummaryFromOutput(text: string | undefined) {
   return clean.length > limit ? `${truncateUtf16Safe(clean, limit)}…` : clean;
 }
 
+/**
+ * Pick a summary from the last non-empty payload text.
+ */
 export function pickSummaryFromPayloads(payloads: Array<{ text?: string | undefined }>) {
   for (let i = payloads.length - 1; i >= 0; i--) {
     const summary = pickSummaryFromOutput(payloads[i]?.text);
@@ -30,6 +40,9 @@ export function pickSummaryFromPayloads(payloads: Array<{ text?: string | undefi
   return undefined;
 }
 
+/**
+ * Pick the last non-empty text from payloads (not truncated).
+ */
 export function pickLastNonEmptyTextFromPayloads(payloads: Array<{ text?: string | undefined }>) {
   for (let i = payloads.length - 1; i >= 0; i--) {
     const clean = (payloads[i]?.text ?? "").trim();
@@ -76,6 +89,9 @@ export function isHeartbeatOnlyResponse(payloads: DeliveryPayload[], ackMaxChars
   });
 }
 
+/**
+ * Resolve the heartbeat ack max chars setting from agent config.
+ */
 export function resolveHeartbeatAckMaxChars(agentCfg?: { heartbeat?: { ackMaxChars?: number } }) {
   const raw = agentCfg?.heartbeat?.ackMaxChars ?? DEFAULT_HEARTBEAT_ACK_MAX_CHARS;
   return Math.max(0, raw);
