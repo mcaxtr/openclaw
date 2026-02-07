@@ -16,6 +16,7 @@ import {
   type IsolatedAgentTurnParams,
   type IsolatedAgentTurnResult,
 } from "../../agents/isolated-turn/index.js";
+import { resolveCronDeliveryPlan } from "../delivery.js";
 
 export type RunCronAgentTurnResult = IsolatedAgentTurnResult;
 
@@ -25,11 +26,11 @@ export type RunCronAgentTurnResult = IsolatedAgentTurnResult;
  * This wrapper extracts the relevant parameters from the CronJob and
  * calls the shared runIsolatedAgentTurn() function.
  *
- * Delivery can be configured in two places:
- * 1. job.payload (for agentTurn kind) - inline delivery options
- * 2. job.delivery - separate delivery configuration with mode "announce"|"none"
- *
- * Payload-level settings take precedence over job.delivery settings.
+ * Delivery is resolved using resolveCronDeliveryPlan() for consistent
+ * precedence with the cron executor. The plan handles:
+ * - job.delivery settings (mode "announce"|"none", channel, to)
+ * - Legacy payload delivery fields (deliver, channel, to)
+ * - Proper precedence: job.delivery > payload for channel/to
  */
 export async function runCronIsolatedAgentTurn(params: {
   cfg: OpenClawConfig;
@@ -44,24 +45,17 @@ export async function runCronIsolatedAgentTurn(params: {
   const payload = job.payload.kind === "agentTurn" ? job.payload : null;
   const delivery = job.delivery;
 
-  // Resolve delivery settings: payload takes precedence over job.delivery
-  // job.delivery.mode === "announce":
-  //   - with explicit `to`: use auto mode (undefined) to respect skip logic
-  //   - without `to`: use explicit mode (true) to attempt delivery via channel resolution
-  // job.delivery.mode === "none" disables delivery entirely (false)
-  const resolvedTo = payload?.to ?? delivery?.to;
-  const deliverFromJobDelivery =
-    delivery?.mode === "announce"
-      ? resolvedTo
-        ? undefined // auto mode with skip logic
-        : true // explicit mode for dynamic target resolution
-      : delivery?.mode === "none"
-        ? false
-        : undefined;
-  const deliver = payload?.deliver ?? deliverFromJobDelivery;
-  const channel = payload?.channel ?? delivery?.channel;
-  const to = payload?.to ?? delivery?.to;
-  const bestEffortDeliver = payload?.bestEffortDeliver ?? delivery?.bestEffort;
+  // Use the canonical delivery planner for consistent precedence with cron executor
+  const plan = resolveCronDeliveryPlan(job);
+
+  // Map plan to isolated turn delivery params:
+  // - none mode → disabled (false)
+  // - announce with explicit target → auto mode (undefined) for skip logic
+  // - announce without target → explicit mode (true) for dynamic resolution
+  const deliver = plan.mode === "none" ? false : plan.to ? undefined : true;
+
+  // bestEffortDeliver is not in the plan; use delivery-first precedence
+  const bestEffortDeliver = delivery?.bestEffort ?? payload?.bestEffortDeliver;
 
   // Build IsolatedAgentTurnParams from CronJob
   const isolatedParams: IsolatedAgentTurnParams = {
@@ -77,10 +71,10 @@ export async function runCronIsolatedAgentTurn(params: {
     thinking: payload?.thinking,
     timeoutSeconds: payload?.timeoutSeconds,
 
-    // Delivery options (merged from payload and job.delivery)
+    // Delivery options from canonical plan
     deliver,
-    channel,
-    to,
+    channel: plan.channel === "last" ? undefined : plan.channel,
+    to: plan.to,
     bestEffortDeliver,
 
     // Security

@@ -66,28 +66,41 @@ export function createSpoolWatcher(params: SpoolWatcherParams): SpoolWatcher {
     }
     processing = true;
 
+    // Capture pending file paths and extract IDs (but don't remove yet - preserve on failure)
+    const capturedPaths = new Set<string>();
+    const pendingIds = new Set<string>();
+    for (const filePath of pendingFiles) {
+      const filename = path.basename(filePath);
+      if (filename.endsWith(".json") && !filename.includes(".json.tmp.")) {
+        capturedPaths.add(filePath);
+        pendingIds.add(filename.replace(/\.json$/, ""));
+      }
+    }
+
+    if (pendingIds.size === 0) {
+      processing = false;
+      return;
+    }
+
+    // Load config and list events - if this fails, pendingFiles is preserved
+    let cfg;
+    let sortedEvents;
     try {
-      // Capture pending file IDs and clear the set
-      const pendingIds = new Set<string>();
-      for (const filePath of pendingFiles) {
-        const filename = path.basename(filePath);
-        if (filename.endsWith(".json") && !filename.includes(".json.tmp.")) {
-          pendingIds.add(filename.replace(/\.json$/, ""));
-        }
-      }
-      pendingFiles.clear();
+      cfg = loadConfig();
+      sortedEvents = await listSpoolEvents();
+    } catch (err) {
+      // Batch initialization failed - leave pendingFiles intact for retry
+      processing = false;
+      throw err;
+    }
 
-      if (pendingIds.size === 0) {
-        return;
-      }
+    // Initialization succeeded - remove only the captured paths, not all pending files
+    // (new files may have arrived during initialization)
+    for (const filePath of capturedPaths) {
+      pendingFiles.delete(filePath);
+    }
 
-      // Load config once for all events in this batch
-      const cfg = loadConfig();
-
-      // Get all events sorted by priority (critical > high > normal > low) then createdAt
-      // This ensures proper processing order when multiple events are pending
-      const sortedEvents = await listSpoolEvents();
-
+    try {
       // Track which IDs were successfully matched (valid events)
       const processedIds = new Set<string>();
 
