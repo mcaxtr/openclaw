@@ -69,7 +69,7 @@ export function createSpoolWatcher(params: SpoolWatcherParams): SpoolWatcher {
       const pendingIds = new Set<string>();
       for (const filePath of pendingFiles) {
         const filename = path.basename(filePath);
-        if (filename.endsWith(".json") && !filename.includes(".tmp.")) {
+        if (filename.endsWith(".json") && !filename.includes(".json.tmp.")) {
           pendingIds.add(filename.replace(/\.json$/, ""));
         }
       }

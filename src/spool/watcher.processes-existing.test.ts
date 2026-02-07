@@ -211,8 +211,8 @@ describe("spool watcher - processes existing files on startup", () => {
         });
         await writeSpoolEvent(event);
 
-        // Create a temp file (should be skipped)
-        const tempFile = path.join(eventsDir, "abc.tmp.json");
+        // Create a temp file (should be skipped) - matches writer.ts pattern: <id>.json.tmp.<uuid>
+        const tempFile = path.join(eventsDir, "abc.json.tmp.123");
         await fs.writeFile(tempFile, JSON.stringify({ version: 1 }));
 
         const logger = createMockLogger();

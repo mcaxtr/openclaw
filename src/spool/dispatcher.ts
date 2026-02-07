@@ -162,8 +162,8 @@ export async function dispatchSpoolEventFile(
   const filename = path.basename(filePath);
   const eventId = filename.replace(/\.json$/, "");
 
-  // Skip temp files
-  if (filename.includes(".tmp.")) {
+  // Skip temp files (written as <id>.json.tmp.<uuid> by writer.ts)
+  if (filename.includes(".json.tmp.")) {
     return {
       status: "skipped",
       eventId,

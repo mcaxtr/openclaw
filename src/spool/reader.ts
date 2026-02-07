@@ -53,7 +53,7 @@ export async function listSpoolEventIds(
   try {
     const files = await fs.readdir(eventsDir);
     return files
-      .filter((f) => f.endsWith(".json") && !f.includes(".tmp."))
+      .filter((f) => f.endsWith(".json") && !f.includes(".json.tmp."))
       .map((f) => path.basename(f, ".json"));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
