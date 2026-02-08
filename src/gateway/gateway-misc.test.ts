@@ -85,6 +85,94 @@ describe("handleControlUiHttpRequest", () => {
       await fs.rm(tmp, { recursive: true, force: true });
     }
   });
+
+  it("returns 404 for missing static asset paths instead of SPA fallback", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-ui-"));
+    try {
+      await fs.writeFile(path.join(tmp, "index.html"), "<html></html>\n");
+      await fs.writeFile(path.join(tmp, "favicon.svg"), "<svg/>");
+      const { res } = makeControlUiResponse();
+      const handled = handleControlUiHttpRequest(
+        { url: "/webchat/favicon.svg", method: "GET" } as IncomingMessage,
+        res,
+        { root: { kind: "resolved", path: tmp } },
+      );
+      expect(handled).toBe(true);
+      expect(res.statusCode).toBe(404);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("still serves SPA fallback for extensionless paths", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-ui-"));
+    try {
+      await fs.writeFile(path.join(tmp, "index.html"), "<html></html>\n");
+      const { res } = makeControlUiResponse();
+      const handled = handleControlUiHttpRequest(
+        { url: "/webchat/chat", method: "GET" } as IncomingMessage,
+        res,
+        { root: { kind: "resolved", path: tmp } },
+      );
+      expect(handled).toBe(true);
+      expect(res.statusCode).toBe(200);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("HEAD returns 404 for missing static assets consistent with GET", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-ui-"));
+    try {
+      await fs.writeFile(path.join(tmp, "index.html"), "<html></html>\n");
+      const { res } = makeControlUiResponse();
+      const handled = handleControlUiHttpRequest(
+        { url: "/webchat/favicon.svg", method: "HEAD" } as IncomingMessage,
+        res,
+        { root: { kind: "resolved", path: tmp } },
+      );
+      expect(handled).toBe(true);
+      expect(res.statusCode).toBe(404);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("serves SPA fallback for dotted path segments that are not static assets", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-ui-"));
+    try {
+      await fs.writeFile(path.join(tmp, "index.html"), "<html></html>\n");
+      for (const route of ["/webchat/user/jane.doe", "/webchat/v2.0", "/settings/v1.2"]) {
+        const { res } = makeControlUiResponse();
+        const handled = handleControlUiHttpRequest(
+          { url: route, method: "GET" } as IncomingMessage,
+          res,
+          { root: { kind: "resolved", path: tmp } },
+        );
+        expect(handled).toBe(true);
+        expect(res.statusCode, `expected 200 for ${route}`).toBe(200);
+      }
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("serves SPA fallback for .html paths that do not exist on disk", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-ui-"));
+    try {
+      await fs.writeFile(path.join(tmp, "index.html"), "<html></html>\n");
+      const { res } = makeControlUiResponse();
+      const handled = handleControlUiHttpRequest(
+        { url: "/webchat/foo.html", method: "GET" } as IncomingMessage,
+        res,
+        { root: { kind: "resolved", path: tmp } },
+      );
+      expect(handled).toBe(true);
+      expect(res.statusCode).toBe(200);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
 });
 
 type TestSocket = {
