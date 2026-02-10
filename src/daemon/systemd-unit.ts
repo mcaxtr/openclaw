@@ -40,6 +40,7 @@ export function buildSystemdUnit({
   programArguments,
   workingDirectory,
   environment,
+  watchdog,
 }: GatewayServiceRenderArgs): string {
   const execStart = programArguments.map(systemdEscapeArg).join(" ");
   const descriptionValue = description?.trim() || "OpenClaw Gateway";
@@ -56,9 +57,12 @@ export function buildSystemdUnit({
     "Wants=network-online.target",
     "",
     "[Service]",
+    watchdog ? "Type=notify" : null,
     `ExecStart=${execStart}`,
     "Restart=always",
     "RestartSec=5",
+    watchdog ? "NotifyAccess=all" : null,
+    watchdog ? "WatchdogSec=90" : null,
     // KillMode=process ensures systemd only waits for the main process to exit.
     // Without this, podman's conmon (container monitor) processes block shutdown
     // since they run as children of the gateway and stay in the same cgroup.
