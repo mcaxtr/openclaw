@@ -67,6 +67,26 @@ const installRegistry = async () => {
           },
         },
       },
+      {
+        pluginId: "slack",
+        source: "test",
+        plugin: {
+          id: "slack",
+          meta: {
+            id: "slack",
+            label: "Slack",
+            selectionLabel: "Slack",
+            docsPath: "/channels/slack",
+            blurb: "Slack test stub.",
+            preferSessionLookupForAnnounceTarget: true,
+          },
+          capabilities: { chatTypes: ["direct", "channel", "thread"] },
+          config: {
+            listAccountIds: () => ["default"],
+            resolveAccount: () => ({}),
+          },
+        },
+      },
     ]),
   );
 };
@@ -171,6 +191,36 @@ describe("resolveAnnounceTarget", () => {
     const first = callGatewayMock.mock.calls[0]?.[0] as { method?: string } | undefined;
     expect(first).toBeDefined();
     expect(first?.method).toBe("sessions.list");
+  });
+
+  it("hydrates Slack accountId from sessions.list in multi-account setups", async () => {
+    const { resolveAnnounceTarget } = await loadResolveAnnounceTarget();
+    callGatewayMock.mockResolvedValueOnce({
+      sessions: [
+        {
+          key: "agent:main:slack:channel:C0123456",
+          deliveryContext: {
+            channel: "slack",
+            to: "channel:C0123456",
+            accountId: "forge",
+          },
+        },
+      ],
+    });
+
+    const target = await resolveAnnounceTarget({
+      sessionKey: "agent:main:slack:channel:C0123456",
+      displayKey: "agent:main:slack:channel:C0123456",
+    });
+    expect(target).toEqual({
+      channel: "slack",
+      to: "channel:C0123456",
+      accountId: "forge",
+    });
+    expect(callGatewayMock).toHaveBeenCalledTimes(1);
+    const slackFirst = callGatewayMock.mock.calls[0]?.[0] as { method?: string } | undefined;
+    expect(slackFirst).toBeDefined();
+    expect(slackFirst?.method).toBe("sessions.list");
   });
 });
 
