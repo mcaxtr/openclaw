@@ -309,8 +309,10 @@ describe("hooks mapping", () => {
   });
 
   it("caches transform functions by module path and export name", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-hooks-export-"));
-    const modPath = path.join(dir, "multi-export.mjs");
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-hooks-export-"));
+    const transformsRoot = path.join(configDir, "hooks", "transforms");
+    fs.mkdirSync(transformsRoot, { recursive: true });
+    const modPath = path.join(transformsRoot, "multi-export.mjs");
     fs.writeFileSync(
       modPath,
       [
@@ -319,29 +321,33 @@ describe("hooks mapping", () => {
       ].join("\n"),
     );
 
-    const mappingsA = resolveHookMappings({
-      transformsDir: dir,
-      mappings: [
-        {
-          match: { path: "testA" },
-          action: "agent",
-          messageTemplate: "unused",
-          transform: { module: "multi-export.mjs", export: "transformA" },
-        },
-      ],
-    });
+    const mappingsA = resolveHookMappings(
+      {
+        mappings: [
+          {
+            match: { path: "testA" },
+            action: "agent",
+            messageTemplate: "unused",
+            transform: { module: "multi-export.mjs", export: "transformA" },
+          },
+        ],
+      },
+      { configDir },
+    );
 
-    const mappingsB = resolveHookMappings({
-      transformsDir: dir,
-      mappings: [
-        {
-          match: { path: "testB" },
-          action: "agent",
-          messageTemplate: "unused",
-          transform: { module: "multi-export.mjs", export: "transformB" },
-        },
-      ],
-    });
+    const mappingsB = resolveHookMappings(
+      {
+        mappings: [
+          {
+            match: { path: "testB" },
+            action: "agent",
+            messageTemplate: "unused",
+            transform: { module: "multi-export.mjs", export: "transformB" },
+          },
+        ],
+      },
+      { configDir },
+    );
 
     const resultA = await applyHookMappings(mappingsA, {
       payload: {},
