@@ -417,7 +417,6 @@ describe("resolveModel", () => {
     expect(result.model?.maxTokens).toBe(64000);
   });
 
->>>>>>> 5284bb82a (fix(model): propagate provider model properties in fallback resolution)
   it("uses codex fallback even when openai-codex provider is configured", () => {
     // This test verifies the ordering: codex fallback must fire BEFORE the generic providerCfg fallback.
     // If ordering is wrong, the generic fallback would use api: "openai-responses" (the default)
