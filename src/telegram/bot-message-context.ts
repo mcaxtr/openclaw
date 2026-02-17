@@ -28,7 +28,6 @@ import {
   type StatusReactionController,
 } from "../channels/status-reactions.js";
 import type { OpenClawConfig } from "../config/config.js";
-import { loadConfig } from "../config/config.js";
 import { readSessionUpdatedAt, resolveStorePath } from "../config/sessions.js";
 import type {
   DmPolicy,
@@ -198,9 +197,8 @@ export const buildTelegramMessageContext = async ({
     ? buildTelegramGroupPeerId(chatId, resolvedThreadId)
     : resolveTelegramDirectPeerId({ chatId, senderId });
   const parentPeer = buildTelegramParentPeer({ isGroup, resolvedThreadId, chatId });
-  // Fresh config for bindings lookup; other routing inputs are payload-derived.
   const route = resolveAgentRoute({
-    cfg: loadConfig(),
+    cfg,
     channel: "telegram",
     accountId: account.accountId,
     peer: {
