@@ -152,20 +152,18 @@ export async function deliverDiscordReply(params: {
   const chunkLimit = Math.min(params.textLimit, 2000);
   const replyTo = params.replyToId?.trim() || undefined;
   const replyToMode = params.replyToMode ?? "all";
-  // replyToMode=first should only apply to the first physical send.
-  const replyOnce = replyToMode === "first";
   let replyUsed = false;
   const resolveReplyTo = () => {
-    if (!replyTo) {
+    if (!replyTo || replyToMode === "off") {
       return undefined;
     }
-    if (!replyOnce) {
+    if (replyToMode === "first") {
+      if (replyUsed) {
+        return undefined;
+      }
+      replyUsed = true;
       return replyTo;
     }
-    if (replyUsed) {
-      return undefined;
-    }
-    replyUsed = true;
     return replyTo;
   };
   const binding = resolveBoundThreadBinding({

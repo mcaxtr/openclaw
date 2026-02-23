@@ -259,6 +259,104 @@ describe("deliverDiscordReply", () => {
     );
   });
 
+  it("uses replyToId on all chunks when replyToMode is all (default)", async () => {
+    await deliverDiscordReply({
+      replies: [{ text: "1234567890" }],
+      target: "channel:789",
+      token: "token",
+      runtime,
+      textLimit: 5,
+      replyToId: "reply-1",
+      replyToMode: "all",
+    });
+
+    expect(sendMessageDiscordMock).toHaveBeenCalledTimes(2);
+    expect(sendMessageDiscordMock.mock.calls[0]?.[2]?.replyTo).toBe("reply-1");
+    expect(sendMessageDiscordMock.mock.calls[1]?.[2]?.replyTo).toBe("reply-1");
+  });
+
+  it("suppresses replyToId entirely when replyToMode is off", async () => {
+    await deliverDiscordReply({
+      replies: [{ text: "1234567890" }],
+      target: "channel:789",
+      token: "token",
+      runtime,
+      textLimit: 5,
+      replyToId: "reply-1",
+      replyToMode: "off",
+    });
+
+    expect(sendMessageDiscordMock).toHaveBeenCalledTimes(2);
+    expect(sendMessageDiscordMock.mock.calls[0]?.[2]?.replyTo).toBeUndefined();
+    expect(sendMessageDiscordMock.mock.calls[1]?.[2]?.replyTo).toBeUndefined();
+  });
+
+  it("uses replyToId on only the first payload across multiple replies when replyToMode is first", async () => {
+    await deliverDiscordReply({
+      replies: [{ text: "first block" }, { text: "second block" }, { text: "third block" }],
+      target: "channel:789",
+      token: "token",
+      runtime,
+      textLimit: 2000,
+      replyToId: "reply-1",
+      replyToMode: "first",
+    });
+
+    expect(sendMessageDiscordMock).toHaveBeenCalledTimes(3);
+    expect(sendMessageDiscordMock.mock.calls[0]?.[2]?.replyTo).toBe("reply-1");
+    expect(sendMessageDiscordMock.mock.calls[1]?.[2]?.replyTo).toBeUndefined();
+    expect(sendMessageDiscordMock.mock.calls[2]?.[2]?.replyTo).toBeUndefined();
+  });
+
+  it("uses replyToId on only the first voice send when replyToMode is first", async () => {
+    await deliverDiscordReply({
+      replies: [
+        {
+          text: "Voice with text",
+          mediaUrls: ["https://example.com/voice.ogg", "https://example.com/extra.mp3"],
+          audioAsVoice: true,
+        },
+      ],
+      target: "channel:789",
+      token: "token",
+      runtime,
+      textLimit: 2000,
+      replyToId: "reply-1",
+      replyToMode: "first",
+    });
+
+    expect(sendVoiceMessageDiscordMock).toHaveBeenCalledTimes(1);
+    expect(sendVoiceMessageDiscordMock.mock.calls[0]?.[2]?.replyTo).toBe("reply-1");
+
+    // Text follow-up and extra media should NOT get reply
+    expect(sendMessageDiscordMock).toHaveBeenCalledTimes(2);
+    expect(sendMessageDiscordMock.mock.calls[0]?.[2]?.replyTo).toBeUndefined();
+    expect(sendMessageDiscordMock.mock.calls[1]?.[2]?.replyTo).toBeUndefined();
+  });
+
+  it("uses replyToId on only the first media send when replyToMode is first", async () => {
+    await deliverDiscordReply({
+      replies: [
+        {
+          text: "Caption",
+          mediaUrls: ["https://example.com/img1.png", "https://example.com/img2.png"],
+        },
+      ],
+      target: "channel:789",
+      token: "token",
+      runtime,
+      textLimit: 2000,
+      replyToId: "reply-1",
+      replyToMode: "first",
+    });
+
+    expect(sendMessageDiscordMock).toHaveBeenCalledTimes(2);
+    // First send: caption + first media with reply
+    expect(sendMessageDiscordMock.mock.calls[0]?.[2]?.replyTo).toBe("reply-1");
+    // Second send: extra media without reply
+    expect(sendMessageDiscordMock.mock.calls[1]?.[2]?.replyTo).toBeUndefined();
+  });
+
   it("does not use thread webhook when outbound target is not a bound thread", async () => {
     const threadBindings = await createBoundThreadBindings();
 
