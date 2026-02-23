@@ -1135,7 +1135,11 @@ export async function updateLastRoute(params: {
         })
       : null;
     const basePatch: Partial<SessionEntry> = {
-      updatedAt: Math.max(existing?.updatedAt ?? 0, now),
+      // Preserve existing updatedAt so that idle-reset freshness checks are not
+      // defeated by a route-only update.  Only set the timestamp for brand-new
+      // entries. The session lifecycle in initSessionState independently writes
+      // updatedAt when the session is committed after the freshness evaluation.
+      updatedAt: existing?.updatedAt ?? now,
       deliveryContext: normalized.deliveryContext,
       lastChannel: normalized.lastChannel,
       lastTo: normalized.lastTo,

@@ -78,6 +78,55 @@ describe("session store key normalization", () => {
     );
   });
 
+  it("preserves existing updatedAt when updating last route (#23508)", async () => {
+    const oldUpdatedAt = Date.now() - 10 * 60_000; // 10 minutes ago
+    await fs.writeFile(
+      storePath,
+      JSON.stringify(
+        {
+          [CANONICAL_KEY]: {
+            sessionId: "idle-session",
+            updatedAt: oldUpdatedAt,
+            chatType: "group",
+            channel: "line",
+          },
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    clearSessionStoreCacheForTest();
+
+    await updateLastRoute({
+      storePath,
+      sessionKey: CANONICAL_KEY,
+      channel: "line",
+      to: "line:group-123",
+    });
+
+    const store = loadSessionStore(storePath, { skipCache: true });
+    // updateLastRoute must NOT bump updatedAt — idle reset depends on it
+    expect(store[CANONICAL_KEY]?.updatedAt).toBe(oldUpdatedAt);
+  });
+
+  it("sets updatedAt on new entries created by updateLastRoute", async () => {
+    const before = Date.now();
+
+    await updateLastRoute({
+      storePath,
+      sessionKey: "agent:main:line:new-group",
+      channel: "line",
+      to: "line:new-group",
+    });
+
+    const store = loadSessionStore(storePath, { skipCache: true });
+    const entry = store["agent:main:line:new-group"];
+    // New entries should get a current timestamp
+    expect(entry?.updatedAt).toBeGreaterThanOrEqual(before);
+    expect(entry?.updatedAt).toBeLessThanOrEqual(Date.now());
+  });
+
   it("migrates legacy mixed-case entries to the canonical key on update", async () => {
     await fs.writeFile(
       storePath,
