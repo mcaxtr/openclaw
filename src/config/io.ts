@@ -82,7 +82,7 @@ const OPEN_DM_POLICY_ALLOW_FROM_RE =
 
 const CONFIG_AUDIT_LOG_FILENAME = "config-audit.jsonl";
 const loggedInvalidConfigs = new Set<string>();
-let lastLoggedWarningKey: string | null = null;
+const lastLoggedWarnings = new Map<string, string>();
 
 type ConfigWriteAuditResult = "rename" | "copy-fallback" | "failed";
 
@@ -693,7 +693,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
             timeoutMs: resolveShellEnvFallbackTimeoutMs(deps.env),
           });
         }
-        lastLoggedWarningKey = null;
+        lastLoggedWarnings.delete(configPath);
         return {};
       }
       const raw = deps.fs.readFileSync(configPath, "utf-8");
@@ -704,7 +704,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       );
       warnOnConfigMiskeys(resolvedConfig, deps.logger);
       if (typeof resolvedConfig !== "object" || resolvedConfig === null) {
-        lastLoggedWarningKey = null;
+        lastLoggedWarnings.delete(configPath);
         return {};
       }
       const preValidationDuplicates = findDuplicateAgentDirs(resolvedConfig as OpenClawConfig, {
@@ -733,12 +733,12 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
           .map((iss) => `- ${iss.path || "<root>"}: ${iss.message}`)
           .join("\n");
         const warningKey = `${configPath}:${details}`;
-        if (warningKey !== lastLoggedWarningKey) {
-          lastLoggedWarningKey = warningKey;
+        if (warningKey !== lastLoggedWarnings.get(configPath)) {
+          lastLoggedWarnings.set(configPath, warningKey);
           deps.logger.warn(`Config warnings:\\n${details}`);
         }
       } else {
-        lastLoggedWarningKey = null;
+        lastLoggedWarnings.delete(configPath);
       }
       warnIfConfigFromFuture(validated.config, deps.logger);
       const cfg = applyTalkConfigNormalization(
@@ -813,7 +813,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
 
       return applyConfigOverrides(cfgWithOwnerDisplaySecret);
     } catch (err) {
-      lastLoggedWarningKey = null;
+      lastLoggedWarnings.delete(configPath);
       if (err instanceof DuplicateAgentDirError) {
         deps.logger.error(err.message);
         throw err;
@@ -1086,12 +1086,12 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
         .map((warning) => `- ${warning.path}: ${warning.message}`)
         .join("\n");
       const warningKey = `${configPath}:${details}`;
-      if (warningKey !== lastLoggedWarningKey) {
-        lastLoggedWarningKey = warningKey;
+      if (warningKey !== lastLoggedWarnings.get(configPath)) {
+        lastLoggedWarnings.set(configPath, warningKey);
         deps.logger.warn(`Config warnings:\n${details}`);
       }
     } else {
-      lastLoggedWarningKey = null;
+      lastLoggedWarnings.delete(configPath);
     }
 
     // Restore ${VAR} env var references that were resolved during config loading.
