@@ -93,6 +93,15 @@ export function extractMentionInfo(annotations: GoogleChatAnnotation[], botUser?
   const hasAnyMention = mentionAnnotations.length > 0;
   const trimmedBotUser = botUser?.trim() || null;
   const botTargets = new Set(["users/app", trimmedBotUser].filter(Boolean) as string[]);
+  // Pre-compute distinct BOT users for multi-bot safety check (avoid recalculating in loop)
+  const distinctBotUsers = !trimmedBotUser
+    ? new Set(
+        mentionAnnotations
+          .filter((m) => m.userMention?.user?.type?.toUpperCase() === "BOT")
+          .map((m) => m.userMention?.user?.name)
+          .filter(Boolean),
+      )
+    : null;
   const wasMentioned = mentionAnnotations.some((entry) => {
     const userName = entry.userMention?.user?.name;
     if (!userName) {
@@ -110,13 +119,7 @@ export function extractMentionInfo(annotations: GoogleChatAnnotation[], botUser?
     // only reliable signal. For multi-bot safety, only use this fallback when
     // exactly one distinct BOT-type user exists — with multiple bots we can't
     // tell which one is ours without an explicit botUser configuration.
-    if (!trimmedBotUser && entry.userMention?.user?.type?.toUpperCase() === "BOT") {
-      const distinctBotUsers = new Set(
-        mentionAnnotations
-          .filter((m) => m.userMention?.user?.type?.toUpperCase() === "BOT")
-          .map((m) => m.userMention?.user?.name)
-          .filter(Boolean),
-      );
+    if (distinctBotUsers && entry.userMention?.user?.type?.toUpperCase() === "BOT") {
       return distinctBotUsers.size === 1;
     }
     return false;
