@@ -309,9 +309,6 @@ export function createAgentEventHandler({
     if (isSilentReplyText(cleaned, SILENT_REPLY_TOKEN)) {
       return;
     }
-    if (shouldHideHeartbeatChatOutput(clientRunId, sourceRunId)) {
-      return;
-    }
     // Detect new text block: when the incoming text doesn't continue from the
     // previous block's text, a tool call happened in between and the agent
     // started a fresh text block.  Finalize the previous block into the base.
@@ -325,7 +322,11 @@ export function createAgentEventHandler({
     //    which extracts remainder text from HEARTBEAT_OK markers
     // 3. stripInlineDirectiveTagsForDisplay is called in emitChatFinal before
     //    broadcasting, ensuring all final outputs are cleaned
-    // 4. Delta broadcasts use `cleaned` (line ~344), so users never see directive tags
+    // 4. Delta broadcasts use `cleaned` (line ~355), so users never see directive tags
+    //
+    // Block tracking and buffer updates happen BEFORE heartbeat check so that heartbeat
+    // messages update the buffer (needed for emitChatFinal) even though they don't
+    // broadcast delta events.
     const lastBlock = chatRunState.lastBlockTexts.get(clientRunId);
     if (lastBlock !== undefined && !text.startsWith(lastBlock)) {
       const base = chatRunState.blockBases.get(clientRunId) ?? "";
@@ -337,6 +338,9 @@ export function createAgentEventHandler({
     const base = chatRunState.blockBases.get(clientRunId) ?? "";
     const fullText = base ? base + "\n\n" + text : text;
     chatRunState.buffers.set(clientRunId, fullText);
+    if (shouldHideHeartbeatChatOutput(clientRunId, sourceRunId)) {
+      return;
+    }
     const now = Date.now();
     const last = chatRunState.deltaSentAt.get(clientRunId) ?? 0;
     if (now - last < 150) {
