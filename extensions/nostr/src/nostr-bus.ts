@@ -696,8 +696,12 @@ export function normalizePubkey(input: string): string {
     if (decoded.type !== "npub") {
       throw new Error("Invalid npub key");
     }
-    // Convert Uint8Array to hex string
-    return Array.from(decoded.data as unknown as Uint8Array)
+    // nostr-tools ≥2.23 returns string, older versions return Uint8Array
+    if (typeof decoded.data === "string") {
+      return decoded.data;
+    }
+    // Convert Uint8Array to hex string (older versions)
+    return Array.from(decoded.data as Uint8Array)
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
   }
