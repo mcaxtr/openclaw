@@ -317,16 +317,17 @@ export function createAgentEventHandler({
     // started a fresh text block.  Finalize the previous block into the base.
     // Safety: the agent runner guarantees monotonic prefix growth within a block
     // (non-prefix updates are suppressed in pi-embedded-subscribe.handlers.messages.ts).
+    // Use cleaned text for consistency with broadcasts.
     const lastBlock = chatRunState.lastBlockTexts.get(clientRunId);
-    if (lastBlock !== undefined && !text.startsWith(lastBlock)) {
+    if (lastBlock !== undefined && !cleaned.startsWith(lastBlock)) {
       const base = chatRunState.blockBases.get(clientRunId) ?? "";
       chatRunState.blockBases.set(clientRunId, base ? base + "\n\n" + lastBlock : lastBlock);
     }
-    chatRunState.lastBlockTexts.set(clientRunId, text);
+    chatRunState.lastBlockTexts.set(clientRunId, cleaned);
 
     // Full text = all previous blocks + current block
     const base = chatRunState.blockBases.get(clientRunId) ?? "";
-    const fullText = base ? base + "\n\n" + text : text;
+    const fullText = base ? base + "\n\n" + cleaned : cleaned;
     chatRunState.buffers.set(clientRunId, fullText);
     const now = Date.now();
     const last = chatRunState.deltaSentAt.get(clientRunId) ?? 0;
