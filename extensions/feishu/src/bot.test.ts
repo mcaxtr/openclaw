@@ -300,6 +300,44 @@ describe("handleFeishuMessage command authorization", () => {
     expect(mockDispatchReplyFromConfig).not.toHaveBeenCalled();
   });
 
+  it("defaults to open dmPolicy when not explicitly configured (backward compatibility)", async () => {
+    mockShouldComputeCommandAuthorized.mockReturnValue(false);
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          // dmPolicy intentionally omitted to test default behavior
+          allowFrom: [],
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          open_id: "ou-any-user",
+        },
+      },
+      message: {
+        message_id: "msg-default-open",
+        chat_id: "oc-dm",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello" }),
+      },
+    };
+
+    await dispatchMessage({ cfg, event });
+
+    // Should NOT create pairing request (open policy)
+    expect(mockUpsertPairingRequest).not.toHaveBeenCalled();
+    expect(mockSendMessageFeishu).not.toHaveBeenCalled();
+
+    // Should process the message normally
+    expect(mockFinalizeInboundContext).toHaveBeenCalledTimes(1);
+    expect(mockDispatchReplyFromConfig).toHaveBeenCalledTimes(1);
+  });
+
   it("computes group command authorization from group allowFrom", async () => {
     mockShouldComputeCommandAuthorized.mockReturnValue(true);
     mockResolveCommandAuthorizedFromAuthorizers.mockReturnValue(false);
