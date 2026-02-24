@@ -597,6 +597,11 @@ export async function handleFeishuMessage(params: {
   const groupConfig = isGroup
     ? resolveFeishuGroupConfig({ cfg: feishuCfg, groupId: ctx.chatId })
     : undefined;
+  // Default to "open" for backward compatibility with pre-2026.2.14 behavior.
+  // Before dmPolicy enforcement was added (commit daf13dbb0, Feb 13 2026),
+  // Feishu DMs were effectively "open". Changing the default to "pairing"
+  // would break existing deployments without config changes.
+  // Security-conscious users should explicitly set dmPolicy to "pairing" or "allowlist".
   const dmPolicy = feishuCfg?.dmPolicy ?? "open";
   const configAllowFrom = feishuCfg?.allowFrom ?? [];
   const useAccessGroups = cfg.commands?.useAccessGroups !== false;
