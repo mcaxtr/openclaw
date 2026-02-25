@@ -624,9 +624,7 @@ describe("loadChatHistory", () => {
     // The stale response for session-A must be discarded
     expect(state.chatMessages).toEqual(freshMessages);
     expect(state.chatThinkingLevel).toBe(null);
-    // chatLoading is intentionally NOT reset by the stale response — the new
-    // session's own loadChatHistory call manages its loading state.
-    expect(state.chatLoading).toBe(true);
+    expect(state.chatLoading).toBe(false);
   });
 
   it("applies response when sessionKey remains unchanged", async () => {

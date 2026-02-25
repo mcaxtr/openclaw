@@ -78,9 +78,9 @@ export async function loadChatHistory(state: ChatState) {
       state.lastError = String(err);
     }
   } finally {
-    if (state.sessionKey === requestedKey) {
-      state.chatLoading = false;
-    }
+    // Always clear chatLoading — if the session changed, the new session's own
+    // loadChatHistory will set it back to true independently.
+    state.chatLoading = false;
   }
 }
 
