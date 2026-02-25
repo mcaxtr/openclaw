@@ -566,3 +566,90 @@ describe("loadChatHistory", () => {
     expect(state.lastError).toBeNull();
   });
 });
+
+describe("loadChatHistory", () => {
+  function createConnectedState(overrides: Partial<ChatState> = {}): {
+    state: ChatState;
+    request: ReturnType<typeof vi.fn>;
+  } {
+    const request = vi.fn();
+    const state: ChatState = {
+      chatAttachments: [],
+      chatLoading: false,
+      chatMessage: "",
+      chatMessages: [],
+      chatRunId: null,
+      chatSending: false,
+      chatStream: null,
+      chatStreamStartedAt: null,
+      chatThinkingLevel: null,
+      client: { request } as unknown as ChatState["client"],
+      connected: true,
+      lastError: null,
+      sessionKey: "session-A",
+      ...overrides,
+    };
+    return { state, request };
+  }
+
+  it("populates chatMessages from server response", async () => {
+    const { state, request } = createConnectedState();
+    const messages = [{ role: "user", content: "Hi" }];
+    request.mockResolvedValue({ messages, thinkingLevel: "high" });
+
+    await loadChatHistory(state);
+
+    expect(state.chatMessages).toEqual(messages);
+    expect(state.chatThinkingLevel).toBe("high");
+    expect(state.chatLoading).toBe(false);
+  });
+
+  it("discards stale response when sessionKey changes during request", async () => {
+    const { state, request } = createConnectedState({ sessionKey: "session-A" });
+    const staleMessages = [{ role: "assistant", content: "old data" }];
+    const freshMessages = [{ role: "user", content: "new session" }];
+
+    // Simulate: request starts for session-A, but during the await the user
+    // switches to session-B. The response arrives for session-A and must NOT
+    // overwrite session-B's messages.
+    request.mockImplementation(async () => {
+      // While the request is in flight, the user switches sessions
+      state.sessionKey = "session-B";
+      state.chatMessages = freshMessages;
+      return { messages: staleMessages, thinkingLevel: "low" };
+    });
+
+    await loadChatHistory(state);
+
+    // The stale response for session-A must be discarded
+    expect(state.chatMessages).toEqual(freshMessages);
+    expect(state.chatThinkingLevel).toBe(null);
+    // chatLoading is intentionally NOT reset by the stale response — the new
+    // session's own loadChatHistory call manages its loading state.
+    expect(state.chatLoading).toBe(true);
+  });
+
+  it("applies response when sessionKey remains unchanged", async () => {
+    const { state, request } = createConnectedState({ sessionKey: "session-A" });
+    const messages = [{ role: "assistant", content: "reply" }];
+    request.mockResolvedValue({ messages, thinkingLevel: "medium" });
+
+    await loadChatHistory(state);
+
+    expect(state.chatMessages).toEqual(messages);
+    expect(state.chatThinkingLevel).toBe("medium");
+  });
+
+  it("discards error when sessionKey changes during a failed request", async () => {
+    const { state, request } = createConnectedState({ sessionKey: "session-A" });
+    request.mockImplementation(async () => {
+      state.sessionKey = "session-B";
+      throw new Error("network timeout");
+    });
+
+    await loadChatHistory(state);
+
+    expect(state.lastError).toBe(null);
+    expect(state.chatMessages).toEqual([]);
+  });
+});
