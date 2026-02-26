@@ -2,6 +2,12 @@ import { Type } from "@sinclair/typebox";
 import { normalizeGroupActivation } from "../../auto-reply/group-activation.js";
 import { getFollowupQueueDepth, resolveQueueSettings } from "../../auto-reply/reply/queue.js";
 import { buildStatusMessage } from "../../auto-reply/status.js";
+import type {
+  ElevatedLevel,
+  ReasoningLevel,
+  ThinkLevel,
+  VerboseLevel,
+} from "../../auto-reply/thinking.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { loadConfig } from "../../config/config.js";
 import {
@@ -365,6 +371,10 @@ export function createSessionStatusTool(opts?: {
         sessionKey: resolved.key,
         sessionStorePath: storePath,
         groupActivation,
+        resolvedThink: resolved.entry.thinkingLevel as ThinkLevel | undefined,
+        resolvedVerbose: resolved.entry.verboseLevel as VerboseLevel | undefined,
+        resolvedReasoning: resolved.entry.reasoningLevel as ReasoningLevel | undefined,
+        resolvedElevated: resolved.entry.elevatedLevel as ElevatedLevel | undefined,
         modelAuth: resolveModelAuthLabel({
           provider: providerForCard,
           cfg,
