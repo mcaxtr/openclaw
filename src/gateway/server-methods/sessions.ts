@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { getAcpSessionManager } from "../../acp/control-plane/manager.js";
-import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { clearBootstrapSnapshot } from "../../agents/bootstrap-cache.js";
 import { abortEmbeddedPiRun, waitForEmbeddedPiRunEnd } from "../../agents/pi-embedded.js";
 import { stopSubagentsForRequester } from "../../auto-reply/reply/abort.js";
@@ -441,6 +441,48 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       },
     );
     await triggerInternalHook(hookEvent);
+
+    // Fire before_reset plugin hook — extract memories before session history is lost (#25074)
+    const hookRunner = getGlobalHookRunner();
+    if (hookRunner?.hasHooks("before_reset")) {
+      const sessionFile = entry?.sessionFile;
+      const agentId = (target.canonicalKey ?? key).split(":")[0] || "main";
+      void (async () => {
+        try {
+          const messages: unknown[] = [];
+          if (sessionFile) {
+            const content = await fs.promises.readFile(sessionFile, "utf-8");
+            for (const line of content.split("\n")) {
+              if (!line.trim()) {
+                continue;
+              }
+              try {
+                const parsed = JSON.parse(line);
+                if (parsed.type === "message" && parsed.message) {
+                  messages.push(parsed.message);
+                }
+              } catch {
+                // skip malformed lines
+              }
+            }
+          } else {
+            logVerbose("before_reset: no session file available, firing hook with empty messages");
+          }
+          await hookRunner.runBeforeReset(
+            { sessionFile, messages, reason: commandReason },
+            {
+              agentId,
+              sessionKey: target.canonicalKey ?? key,
+              sessionId: entry?.sessionId,
+              workspaceDir: resolveAgentWorkspaceDir(cfg, agentId),
+            },
+          );
+        } catch (err: unknown) {
+          logVerbose(`before_reset hook failed: ${String(err)}`);
+        }
+      })();
+    }
+
     const sessionId = entry?.sessionId;
     const cleanupError = await ensureSessionRuntimeCleanup({ cfg, key, target, sessionId });
     if (cleanupError) {
