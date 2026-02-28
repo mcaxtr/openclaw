@@ -81,6 +81,8 @@ describe("sanitizeEnvVars", () => {
       "GH_TOKEN",
       "OPENCLAW_GATEWAY_TOKEN",
       "OPENCLAW_GATEWAY_PASSWORD",
+      "CLAWDBOT_GATEWAY_TOKEN",
+      "CLAWDBOT_GATEWAY_PASSWORD",
       "TELEGRAM_BOT_TOKEN",
       "DISCORD_BOT_TOKEN",
       "AWS_SECRET_ACCESS_KEY",
