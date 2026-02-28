@@ -120,6 +120,7 @@ vi.mock("../../agents/cli-session.js", () => ({
 }));
 
 vi.mock("../../auto-reply/thinking.js", () => ({
+  normalizeElevatedLevel: vi.fn().mockReturnValue(undefined),
   normalizeThinkLevel: vi.fn().mockReturnValue(undefined),
   normalizeVerboseLevel: vi.fn().mockReturnValue("off"),
   supportsXHighThinking: vi.fn().mockReturnValue(false),
