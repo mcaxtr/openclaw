@@ -462,8 +462,8 @@ export function formatHooksCheck(report: HookStatusReport, opts: HooksCheckOptio
       const reasons = [];
       if (hook.disabled) {
         reasons.push("disabled");
-      }
-      if (hook.events.length === 0) {
+      } else if (hook.events.length === 0) {
+        // Mirrors exclusive-priority logic in formatHookStatus / formatHookInfo
         reasons.push("no events defined");
       }
       if (hook.missing.bins.length > 0) {
