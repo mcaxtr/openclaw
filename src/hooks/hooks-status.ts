@@ -101,7 +101,8 @@ function buildHookStatus(
       isConfigSatisfied,
     });
 
-  const eligible = !disabled && requirementsSatisfied;
+  // Match loader behavior: hooks with no events are not loaded (loader.ts:109-113)
+  const eligible = !disabled && requirementsSatisfied && events.length > 0;
 
   return {
     name: entry.hook.name,

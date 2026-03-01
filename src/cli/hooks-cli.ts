@@ -123,6 +123,9 @@ function formatHookStatus(hook: HookStatusEntry): string {
   if (hook.disabled) {
     return theme.warn("⏸ disabled");
   }
+  if (hook.events.length === 0) {
+    return theme.warn("⚠ no events");
+  }
   return theme.error("✗ missing");
 }
 
@@ -336,7 +339,9 @@ export function formatHookInfo(
     ? theme.success("✓ Ready")
     : hook.disabled
       ? theme.warn("⏸ Disabled")
-      : theme.error("✗ Missing requirements");
+      : hook.events.length === 0
+        ? theme.warn("⚠ No events defined")
+        : theme.error("✗ Missing requirements");
 
   lines.push(`${emoji} ${theme.heading(hook.name)} ${status}`);
   lines.push("");
@@ -454,6 +459,9 @@ export function formatHooksCheck(report: HookStatusReport, opts: HooksCheckOptio
       const reasons = [];
       if (hook.disabled) {
         reasons.push("disabled");
+      }
+      if (hook.events.length === 0) {
+        reasons.push("no events defined");
       }
       if (hook.missing.bins.length > 0) {
         reasons.push(`bins: ${hook.missing.bins.join(", ")}`);

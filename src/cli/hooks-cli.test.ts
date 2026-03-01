@@ -40,6 +40,39 @@ describe("hooks cli formatting", () => {
     expect(output).toContain("Hooks Status");
   });
 
+  it("shows no-events status for hooks without events", () => {
+    const noEventsReport: HookStatusReport = {
+      workspaceDir: "/tmp/workspace",
+      managedHooksDir: "/tmp/hooks",
+      hooks: [
+        {
+          name: "empty-hook",
+          description: "Hook with no events",
+          source: "openclaw-managed",
+          pluginId: undefined,
+          filePath: "/tmp/hooks/empty-hook/HOOK.md",
+          baseDir: "/tmp/hooks/empty-hook",
+          handlerPath: "/tmp/hooks/empty-hook/handler.js",
+          hookKey: "empty-hook",
+          emoji: "🔗",
+          homepage: undefined,
+          events: [],
+          always: false,
+          disabled: false,
+          eligible: false,
+          managedByPlugin: false,
+          ...createEmptyInstallChecks(),
+        },
+      ],
+    };
+
+    const listOutput = formatHooksList(noEventsReport, {});
+    expect(listOutput).toContain("no events");
+
+    const checkOutput = formatHooksCheck(noEventsReport, {});
+    expect(checkOutput).toContain("no events defined");
+  });
+
   it("labels plugin-managed hooks with plugin id", () => {
     const pluginReport: HookStatusReport = {
       workspaceDir: "/tmp/workspace",
