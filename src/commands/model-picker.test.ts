@@ -197,6 +197,16 @@ describe("applyModelAllowlist", () => {
     });
   });
 
+  it("does not pollute Object.prototype with __proto__ keys", () => {
+    const config = { agents: { defaults: {} } } as OpenClawConfig;
+    const next = applyModelAllowlist(config, ["openai/gpt-5.2", "__proto__"]);
+    const models = next.agents?.defaults?.models;
+    // __proto__ stored as a normal property, not as prototype setter
+    expect(Object.hasOwn(models!, "__proto__")).toBe(true);
+    // Object.prototype unchanged
+    expect(({} as Record<string, unknown>).__proto__).toBe(Object.prototype);
+  });
+
   it("clears the allowlist when no models remain", () => {
     const config = {
       agents: {

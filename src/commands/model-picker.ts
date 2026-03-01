@@ -499,7 +499,8 @@ export function applyModelAllowlist(cfg: OpenClawConfig, models: string[]): Open
   }
 
   const existingModels = defaults?.models ?? {};
-  const nextModels: Record<string, { alias?: string }> = {};
+  // Null-prototype map prevents prototype pollution from user-controlled model keys
+  const nextModels: Record<string, { alias?: string }> = Object.create(null);
   for (const key of normalized) {
     nextModels[key] = existingModels[key] ?? {};
   }
