@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { getAcpSessionManager } from "../../acp/control-plane/manager.js";
-import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { clearBootstrapSnapshot } from "../../agents/bootstrap-cache.js";
 import { abortEmbeddedPiRun, waitForEmbeddedPiRunEnd } from "../../agents/pi-embedded.js";
 import { stopSubagentsForRequester } from "../../auto-reply/reply/abort.js";
@@ -471,6 +471,10 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       },
     );
     await triggerInternalHook(hookEvent);
+
+    const hookRunner = getGlobalHookRunner();
+    const wantsBeforeReset = hookRunner?.hasHooks("before_reset") ?? false;
+
     const mutationCleanupError = await cleanupSessionBeforeMutation({
       cfg,
       key,
@@ -483,6 +487,49 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     if (mutationCleanupError) {
       respond(false, undefined, mutationCleanupError);
       return;
+    }
+
+    // Fire before_reset plugin hook after cleanup succeeds (#25074).
+    // Read transcript eagerly (before archival can rename/delete the file),
+    // then fire-and-forget only the hook dispatch to avoid blocking the response.
+    if (wantsBeforeReset && hookRunner) {
+      const sessionFile = entry?.sessionFile;
+      const messages: unknown[] = [];
+      if (sessionFile) {
+        try {
+          const content = await fs.promises.readFile(sessionFile, "utf-8");
+          for (const line of content.split("\n")) {
+            if (!line.trim()) {
+              continue;
+            }
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.type === "message" && parsed.message) {
+                messages.push(parsed.message);
+              }
+            } catch {
+              // skip malformed lines
+            }
+          }
+        } catch {
+          logVerbose("before_reset: failed to read session file, firing hook with empty messages");
+        }
+      } else {
+        logVerbose("before_reset: no session file available, firing hook with empty messages");
+      }
+      void hookRunner
+        .runBeforeReset(
+          { sessionFile, messages, reason: commandReason },
+          {
+            agentId: target.agentId,
+            sessionKey: target.canonicalKey ?? key,
+            sessionId: entry?.sessionId,
+            workspaceDir: resolveAgentWorkspaceDir(cfg, target.agentId),
+          },
+        )
+        .catch((err: unknown) => {
+          logVerbose(`before_reset hook failed: ${String(err)}`);
+        });
     }
     let oldSessionId: string | undefined;
     let oldSessionFile: string | undefined;
