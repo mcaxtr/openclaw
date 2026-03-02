@@ -656,6 +656,8 @@ export async function discoverAllSessions(params?: {
         try {
           const message = parsed.message as Record<string, unknown> | undefined;
           if (message?.role === "user") {
+            // Intentionally joins all text blocks (original only took the first);
+            // the 100-char truncation still caps the preview label.
             const text = extractTextContent(message);
             if (text) {
               firstUserMessage = text.slice(0, 100);
