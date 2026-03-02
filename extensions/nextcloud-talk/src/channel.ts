@@ -5,6 +5,7 @@ import {
   deleteAccountFromConfigSection,
   formatPairingApproveHint,
   normalizeAccountId,
+  resolveChannelAccountConfigBasePath,
   resolveAllowlistProviderRuntimeGroupPolicy,
   resolveDefaultGroupPolicy,
   setAccountEnabledInConfigSection,
@@ -115,12 +116,12 @@ export const nextcloudTalkPlugin: ChannelPlugin<ResolvedNextcloudTalkAccount> = 
   security: {
     resolveDmPolicy: ({ cfg, accountId, account }) => {
       const resolvedAccountId = accountId ?? account.accountId ?? DEFAULT_ACCOUNT_ID;
-      const useAccountPath = Boolean(
-        cfg.channels?.["nextcloud-talk"]?.accounts?.[resolvedAccountId],
-      );
-      const basePath = useAccountPath
-        ? `channels.nextcloud-talk.accounts.${resolvedAccountId}.`
-        : "channels.nextcloud-talk.";
+      // Config path resolved via resolveChannelAccountConfigBasePath — see plugin-sdk/config-paths.ts
+      const basePath = resolveChannelAccountConfigBasePath({
+        cfg,
+        channelKey: "nextcloud-talk",
+        accountId: resolvedAccountId,
+      });
       return {
         policy: account.config.dmPolicy ?? "pairing",
         allowFrom: account.config.allowFrom ?? [],

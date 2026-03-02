@@ -16,6 +16,7 @@ import {
   formatWhatsAppConfigAllowFromEntries,
   normalizeWhatsAppMessagingTarget,
   readStringParam,
+  resolveChannelAccountConfigBasePath,
   resolveDefaultWhatsAppAccountId,
   resolveWhatsAppOutboundTarget,
   resolveAllowlistProviderRuntimeGroupPolicy,
@@ -122,10 +123,12 @@ export const whatsappPlugin: ChannelPlugin<ResolvedWhatsAppAccount> = {
   security: {
     resolveDmPolicy: ({ cfg, accountId, account }) => {
       const resolvedAccountId = accountId ?? account.accountId ?? DEFAULT_ACCOUNT_ID;
-      const useAccountPath = Boolean(cfg.channels?.whatsapp?.accounts?.[resolvedAccountId]);
-      const basePath = useAccountPath
-        ? `channels.whatsapp.accounts.${resolvedAccountId}.`
-        : "channels.whatsapp.";
+      // Config path resolved via resolveChannelAccountConfigBasePath — see plugin-sdk/config-paths.ts
+      const basePath = resolveChannelAccountConfigBasePath({
+        cfg,
+        channelKey: "whatsapp",
+        accountId: resolvedAccountId,
+      });
       return {
         policy: account.dmPolicy ?? "pairing",
         allowFrom: account.allowFrom ?? [],

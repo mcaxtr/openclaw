@@ -10,6 +10,7 @@ import {
   migrateBaseNameToDefaultAccount,
   normalizeAccountId,
   PAIRING_APPROVED_MESSAGE,
+  resolveChannelAccountConfigBasePath,
   resolveBlueBubblesGroupRequireMention,
   resolveBlueBubblesGroupToolPolicy,
   setAccountEnabledInConfigSection,
@@ -119,10 +120,12 @@ export const bluebubblesPlugin: ChannelPlugin<ResolvedBlueBubblesAccount> = {
   security: {
     resolveDmPolicy: ({ cfg, accountId, account }) => {
       const resolvedAccountId = accountId ?? account.accountId ?? DEFAULT_ACCOUNT_ID;
-      const useAccountPath = Boolean(cfg.channels?.bluebubbles?.accounts?.[resolvedAccountId]);
-      const basePath = useAccountPath
-        ? `channels.bluebubbles.accounts.${resolvedAccountId}.`
-        : "channels.bluebubbles.";
+      // Config path resolved via resolveChannelAccountConfigBasePath — see plugin-sdk/config-paths.ts
+      const basePath = resolveChannelAccountConfigBasePath({
+        cfg,
+        channelKey: "bluebubbles",
+        accountId: resolvedAccountId,
+      });
       return {
         policy: account.config.dmPolicy ?? "pairing",
         allowFrom: account.config.allowFrom ?? [],

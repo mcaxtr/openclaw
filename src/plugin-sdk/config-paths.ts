@@ -1,5 +1,11 @@
 import type { OpenClawConfig } from "../config/config.js";
 
+/**
+ * Canonical config base path resolver for channel account contexts.
+ * USE THIS in resolveDmPolicy handlers — do not inline the account-path check.
+ * Returns a trailing-dot path like "channels.telegram." or "channels.telegram.accounts.main.".
+ * @see CLAUDE.md for project-level guidance.
+ */
 export function resolveChannelAccountConfigBasePath(params: {
   cfg: OpenClawConfig;
   channelKey: string;

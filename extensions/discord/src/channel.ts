@@ -19,6 +19,7 @@ import {
   normalizeDiscordMessagingTarget,
   normalizeDiscordOutboundTarget,
   PAIRING_APPROVED_MESSAGE,
+  resolveChannelAccountConfigBasePath,
   resolveDiscordAccount,
   resolveDefaultDiscordAccountId,
   resolveDiscordGroupRequireMention,
@@ -119,10 +120,13 @@ export const discordPlugin: ChannelPlugin<ResolvedDiscordAccount> = {
   security: {
     resolveDmPolicy: ({ cfg, accountId, account }) => {
       const resolvedAccountId = accountId ?? account.accountId ?? DEFAULT_ACCOUNT_ID;
-      const useAccountPath = Boolean(cfg.channels?.discord?.accounts?.[resolvedAccountId]);
-      const allowFromPath = useAccountPath
-        ? `channels.discord.accounts.${resolvedAccountId}.dm.`
-        : "channels.discord.dm.";
+      // Config path resolved via resolveChannelAccountConfigBasePath — see plugin-sdk/config-paths.ts
+      const basePath = resolveChannelAccountConfigBasePath({
+        cfg,
+        channelKey: "discord",
+        accountId: resolvedAccountId,
+      });
+      const allowFromPath = `${basePath}dm.`;
       return {
         policy: account.config.dm?.policy ?? "pairing",
         allowFrom: account.config.dm?.allowFrom ?? [],
