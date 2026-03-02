@@ -432,12 +432,11 @@ export function wrapStreamFnWithMessageSanitizer(
   sanitize: (messages: AgentMessage[]) => AgentMessage[],
 ): StreamFn {
   return (model, context, options) => {
-    const ctx = context as unknown as { messages?: unknown };
-    const messages = ctx?.messages;
+    const messages = (context as unknown as { messages?: unknown }).messages;
     if (!Array.isArray(messages)) {
       return inner(model, context, options);
     }
-    const sanitized = sanitize(messages as unknown as AgentMessage[]) as unknown;
+    const sanitized = sanitize(messages as AgentMessage[]);
     if (sanitized === messages) {
       return inner(model, context, options);
     }
@@ -1112,7 +1111,7 @@ export async function runEmbeddedAttempt(
       if (transcriptPolicy.dropThinkingBlocks) {
         activeSession.agent.streamFn = wrapStreamFnWithMessageSanitizer(
           activeSession.agent.streamFn,
-          (msgs) => dropThinkingBlocks(msgs),
+          dropThinkingBlocks,
         );
       }
 
@@ -1135,7 +1134,7 @@ export async function runEmbeddedAttempt(
       ) {
         activeSession.agent.streamFn = wrapStreamFnWithMessageSanitizer(
           activeSession.agent.streamFn,
-          (msgs) => downgradeOpenAIFunctionCallReasoningPairs(msgs),
+          downgradeOpenAIFunctionCallReasoningPairs,
         );
       }
 
