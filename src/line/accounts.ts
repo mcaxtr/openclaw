@@ -1,9 +1,9 @@
 import fs from "node:fs";
+import { createAccountListHelpers } from "../channels/plugins/account-helpers.js";
 import type { OpenClawConfig } from "../config/config.js";
 import {
   DEFAULT_ACCOUNT_ID,
   normalizeAccountId as normalizeSharedAccountId,
-  normalizeOptionalAccountId,
 } from "../routing/account-id.js";
 import { resolveAccountEntry } from "../routing/account-lookup.js";
 import type {
@@ -156,46 +156,25 @@ export function resolveLineAccount(params: {
   };
 }
 
-export function listLineAccountIds(cfg: OpenClawConfig): string[] {
+function hasBaseLevelLineToken(cfg: OpenClawConfig): boolean {
   const lineConfig = cfg.channels?.line as LineConfig | undefined;
-  const accounts = lineConfig?.accounts;
-  const ids = new Set<string>();
-
-  // Add default account if configured at base level
-  if (
-    lineConfig?.channelAccessToken?.trim() ||
-    lineConfig?.tokenFile ||
-    process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim()
-  ) {
-    ids.add(DEFAULT_ACCOUNT_ID);
+  if (!lineConfig) {
+    return false;
   }
-
-  // Add named accounts
-  if (accounts) {
-    for (const id of Object.keys(accounts)) {
-      ids.add(id);
-    }
-  }
-
-  return Array.from(ids);
-}
-
-export function resolveDefaultLineAccountId(cfg: OpenClawConfig): string {
-  const preferred = normalizeOptionalAccountId(
-    (cfg.channels?.line as LineConfig | undefined)?.defaultAccount,
+  return (
+    Boolean(lineConfig.channelAccessToken?.trim()) ||
+    Boolean(lineConfig.tokenFile) ||
+    Boolean(process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim())
   );
-  if (
-    preferred &&
-    listLineAccountIds(cfg).some((accountId) => normalizeSharedAccountId(accountId) === preferred)
-  ) {
-    return preferred;
-  }
-  const ids = listLineAccountIds(cfg);
-  if (ids.includes(DEFAULT_ACCOUNT_ID)) {
-    return DEFAULT_ACCOUNT_ID;
-  }
-  return ids[0] ?? DEFAULT_ACCOUNT_ID;
 }
+
+// Account listing/default resolution consolidated into the shared helper.
+const _helpers = createAccountListHelpers("line", {
+  hasBaseLevelToken: hasBaseLevelLineToken,
+});
+
+export const listLineAccountIds = _helpers.listAccountIds;
+export const resolveDefaultLineAccountId = _helpers.resolveDefaultAccountId;
 
 export function normalizeAccountId(accountId: string | undefined): string {
   return normalizeSharedAccountId(accountId);
