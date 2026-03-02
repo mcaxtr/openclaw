@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
 import type { OpenClawConfig } from "../config/config.js";
 import type { GatewayRequestHandler } from "../gateway/server-methods/types.js";
+import { clearHooksBySource } from "../hooks/hook-registry.js";
 import { openBoundaryFileSync } from "../infra/boundary-file-read.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveUserPath } from "../utils.js";
@@ -98,9 +99,12 @@ export const __testing = {
 function buildCacheKey(params: {
   workspaceDir?: string;
   plugins: NormalizedPluginsConfig;
+  hooksEnabled?: boolean;
 }): string {
   const workspaceKey = params.workspaceDir ? resolveUserPath(params.workspaceDir) : "";
-  return `${workspaceKey}::${JSON.stringify(params.plugins)}`;
+  // Include hooks.internal.enabled so toggling it invalidates the cache —
+  // otherwise stale plugin-source internal hooks survive SIGUSR1 restart.
+  return `${workspaceKey}::${params.hooksEnabled ? "hooks" : "nohooks"}::${JSON.stringify(params.plugins)}`;
 }
 
 function validatePluginConfig(params: {
@@ -380,6 +384,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
   const cacheKey = buildCacheKey({
     workspaceDir: options.workspaceDir,
     plugins: normalized,
+    hooksEnabled: cfg.hooks?.internal?.enabled === true,
   });
   const cacheEnabled = options.cache !== false;
   if (cacheEnabled) {
@@ -390,8 +395,11 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     }
   }
 
-  // Clear previously registered plugin commands before reloading
+  // Clear previously registered plugin commands and hooks before reloading.
+  // This only runs on the non-cached path so hooks survive when the cache hits
+  // (on SIGUSR1 restart with unchanged plugin config, register() isn't re-run).
   clearPluginCommands();
+  clearHooksBySource(["plugin"]);
 
   const runtime = createPluginRuntime();
   const { registry, createApi } = createPluginRegistry({

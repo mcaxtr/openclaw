@@ -391,6 +391,8 @@ export async function startGatewayServer(
   const defaultWorkspaceDir = resolveAgentWorkspaceDir(cfgAtStart, defaultAgentId);
   const baseMethods = listGatewayMethods();
   const emptyPluginRegistry = createEmptyPluginRegistry();
+  // Plugin hook clearing is handled inside loadOpenClawPlugins() on the non-cached path,
+  // so hooks survive when the cache hits (SIGUSR1 restart with unchanged plugin config).
   const { pluginRegistry, gatewayMethods: baseGatewayMethods } = minimalTestGateway
     ? { pluginRegistry: emptyPluginRegistry, gatewayMethods: baseMethods }
     : loadGatewayPlugins({
