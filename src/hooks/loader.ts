@@ -112,8 +112,9 @@ export async function loadInternalHooks(
           continue;
         }
 
+        // Pass the hook file source so the unified registry can scope clearing
         for (const event of events) {
-          registerInternalHook(event, handler);
+          registerInternalHook(event, handler, entry.hook.source);
         }
 
         log.info(
@@ -185,7 +186,7 @@ export async function loadInternalHooks(
         continue;
       }
 
-      registerInternalHook(handlerConfig.event, handler);
+      registerInternalHook(handlerConfig.event, handler, "config");
       log.info(
         `Registered hook (legacy): ${handlerConfig.event} -> ${modulePath}${exportName !== "default" ? `#${exportName}` : ""}`,
       );

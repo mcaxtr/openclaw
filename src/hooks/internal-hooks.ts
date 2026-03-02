@@ -3,12 +3,23 @@
  *
  * Provides an extensible event-driven hook system for agent events
  * like command processing, session lifecycle, etc.
+ *
+ * Backed by unified hook registry — see hook-registry.ts
  */
 
 import type { WorkspaceBootstrapFile } from "../agents/workspace.js";
 import type { CliDeps } from "../cli/deps.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import {
+  clearHooksBySource,
+  FILE_HOOK_SOURCES,
+  getHookEntries,
+  getRegisteredKeys,
+  registerHook,
+  unregisterHook,
+  type HookRegistrySource,
+} from "./hook-registry.js";
 
 export type InternalHookEventType = "command" | "session" | "agent" | "gateway" | "message";
 
@@ -110,98 +121,116 @@ export interface InternalHookEvent {
 
 export type InternalHookHandler = (event: InternalHookEvent) => Promise<void> | void;
 
-/** Registry of hook handlers by event key */
-const handlers = new Map<string, InternalHookHandler[]>();
 const log = createSubsystemLogger("internal-hooks");
 
 /**
- * Register a hook handler for a specific event type or event:action combination
+ * Map from hook file source names to unified registry source tags.
+ *
+ * @see HookRegistrySource in hook-registry.ts
+ */
+const FILE_SOURCE_TO_REGISTRY: Record<string, HookRegistrySource> = {
+  "openclaw-bundled": "bundled",
+  "openclaw-workspace": "workspace",
+  "openclaw-managed": "managed",
+  "openclaw-plugin": "plugin",
+};
+
+/**
+ * Register a hook handler for a specific event type or event:action combination.
+ *
+ * Delegates to the unified hook registry with source tagging. The optional
+ * `source` parameter controls which registry source tag is applied — this
+ * determines whether the handler survives source-scoped clearing.
  *
  * @param eventKey - Event type (e.g., 'command') or specific action (e.g., 'command:new')
  * @param handler - Function to call when the event is triggered
+ * @param source - Registry source tag. Defaults to "config". Use "plugin" for
+ *   plugin-registered hooks so they survive clearInternalHooks().
  *
  * @example
  * ```ts
- * // Listen to all command events
+ * // Listen to all command events (default source: "config")
  * registerInternalHook('command', async (event) => {
  *   console.log('Command:', event.action);
  * });
  *
- * // Listen only to /new commands
- * registerInternalHook('command:new', async (event) => {
- *   await saveSessionToMemory(event);
- * });
+ * // Listen only to /new commands with explicit source
+ * registerInternalHook('command:new', handler, 'workspace');
+ *
+ * // Plugin-registered hook (survives clearInternalHooks)
+ * registerInternalHook('command:new', handler, 'plugin');
  * ```
  */
-export function registerInternalHook(eventKey: string, handler: InternalHookHandler): void {
-  if (!handlers.has(eventKey)) {
-    handlers.set(eventKey, []);
-  }
-  handlers.get(eventKey)!.push(handler);
+export function registerInternalHook(
+  eventKey: string,
+  handler: InternalHookHandler,
+  source?: string,
+): void {
+  const registrySource: HookRegistrySource =
+    (source ? (FILE_SOURCE_TO_REGISTRY[source] ?? (source as HookRegistrySource)) : undefined) ??
+    "config";
+  registerHook(eventKey, handler as (...args: unknown[]) => unknown, {
+    source: registrySource,
+  });
 }
 
 /**
- * Unregister a specific hook handler
+ * Unregister a specific hook handler.
  *
  * @param eventKey - Event key the handler was registered for
- * @param handler - The handler function to remove
+ * @param handler - The handler function to remove (matched by reference)
  */
 export function unregisterInternalHook(eventKey: string, handler: InternalHookHandler): void {
-  const eventHandlers = handlers.get(eventKey);
-  if (!eventHandlers) {
-    return;
-  }
-
-  const index = eventHandlers.indexOf(handler);
-  if (index !== -1) {
-    eventHandlers.splice(index, 1);
-  }
-
-  // Clean up empty handler arrays
-  if (eventHandlers.length === 0) {
-    handlers.delete(eventKey);
-  }
+  unregisterHook(eventKey, handler as (...args: unknown[]) => unknown);
 }
 
 /**
- * Clear all registered hooks (useful for testing)
+ * Clear internal hooks registered from file-based and config sources.
+ *
+ * Clears "bundled", "workspace", "managed", and "config" source hooks while
+ * **preserving** "plugin" source hooks. This prevents the bug where gateway
+ * hot-reload would wipe plugin hooks that were registered during plugin init.
+ *
+ * For tests that need a complete wipe, use `clearAllHooks()` from
+ * `hook-registry.ts` instead.
  */
 export function clearInternalHooks(): void {
-  handlers.clear();
+  clearHooksBySource(FILE_HOOK_SOURCES);
 }
 
 /**
- * Get all registered event keys (useful for debugging)
+ * Get all registered event keys (useful for debugging).
+ *
+ * Returns keys from the unified registry.
  */
 export function getRegisteredEventKeys(): string[] {
-  return Array.from(handlers.keys());
+  return getRegisteredKeys();
 }
 
 /**
- * Trigger a hook event
+ * Trigger a hook event.
  *
  * Calls all handlers registered for:
  * 1. The general event type (e.g., 'command')
  * 2. The specific event:action combination (e.g., 'command:new')
  *
- * Handlers are called in registration order. Errors are caught and logged
- * but don't prevent other handlers from running.
+ * Errors are caught and logged but don't prevent other handlers from running.
  *
  * @param event - The event to trigger
  */
 export async function triggerInternalHook(event: InternalHookEvent): Promise<void> {
-  const typeHandlers = handlers.get(event.type) ?? [];
-  const specificHandlers = handlers.get(`${event.type}:${event.action}`) ?? [];
+  const typeEntries = getHookEntries(event.type);
+  const specificEntries = getHookEntries(`${event.type}:${event.action}`);
 
-  const allHandlers = [...typeHandlers, ...specificHandlers];
+  const allEntries = [...typeEntries, ...specificEntries];
 
-  if (allHandlers.length === 0) {
+  if (allEntries.length === 0) {
     return;
   }
 
-  for (const handler of allHandlers) {
+  for (const entry of allEntries) {
     try {
-      await handler(event);
+      await (entry.handler as InternalHookHandler)(event);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(`Hook error [${event.type}:${event.action}]: ${message}`);

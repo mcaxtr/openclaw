@@ -454,5 +454,23 @@ describe("hooks", () => {
       const keys = getRegisteredEventKeys();
       expect(keys).toEqual([]);
     });
+
+    it("preserves plugin-registered hooks", async () => {
+      const { registerHook, hasHooks } = await import("./hook-registry.js");
+      const pluginHandler = vi.fn();
+      registerHook("message:received", pluginHandler, {
+        source: "plugin",
+        pluginId: "test-plugin",
+      });
+      registerInternalHook("message:received", vi.fn());
+
+      clearInternalHooks();
+
+      // Plugin hook survives, internal hook does not
+      expect(hasHooks("message:received")).toBe(true);
+      const entries = (await import("./hook-registry.js")).getHookEntries("message:received");
+      expect(entries).toHaveLength(1);
+      expect(entries[0].source).toBe("plugin");
+    });
   });
 });

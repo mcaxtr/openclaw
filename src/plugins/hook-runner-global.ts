@@ -3,6 +3,10 @@
  *
  * Singleton hook runner that's initialized when plugins are loaded
  * and can be called from anywhere in the codebase.
+ *
+ * Stored on globalThis to survive bundler chunk splitting — see
+ * src/hooks/hook-registry.ts for the rationale. Same lazy-init pattern
+ * as src/plugins/runtime.ts.
  */
 
 import { createSubsystemLogger } from "../logging/subsystem.js";
@@ -12,16 +16,29 @@ import type { PluginHookGatewayContext, PluginHookGatewayStopEvent } from "./typ
 
 const log = createSubsystemLogger("plugins");
 
-let globalHookRunner: HookRunner | null = null;
-let globalRegistry: PluginRegistry | null = null;
+const HOOK_RUNNER_SYMBOL = Symbol.for("openclaw:hookRunner");
+
+type HookRunnerState = {
+  hookRunner: HookRunner | null;
+  registry: PluginRegistry | null;
+};
+
+function getState(): HookRunnerState {
+  const g = globalThis as typeof globalThis & { [HOOK_RUNNER_SYMBOL]?: HookRunnerState };
+  if (!g[HOOK_RUNNER_SYMBOL]) {
+    g[HOOK_RUNNER_SYMBOL] = { hookRunner: null, registry: null };
+  }
+  return g[HOOK_RUNNER_SYMBOL];
+}
 
 /**
  * Initialize the global hook runner with a plugin registry.
  * Called once when plugins are loaded during gateway startup.
  */
 export function initializeGlobalHookRunner(registry: PluginRegistry): void {
-  globalRegistry = registry;
-  globalHookRunner = createHookRunner(registry, {
+  const state = getState();
+  state.registry = registry;
+  state.hookRunner = createHookRunner(registry, {
     logger: {
       debug: (msg) => log.debug(msg),
       warn: (msg) => log.warn(msg),
@@ -41,7 +58,7 @@ export function initializeGlobalHookRunner(registry: PluginRegistry): void {
  * Returns null if plugins haven't been loaded yet.
  */
 export function getGlobalHookRunner(): HookRunner | null {
-  return globalHookRunner;
+  return getState().hookRunner;
 }
 
 /**
@@ -49,14 +66,14 @@ export function getGlobalHookRunner(): HookRunner | null {
  * Returns null if plugins haven't been loaded yet.
  */
 export function getGlobalPluginRegistry(): PluginRegistry | null {
-  return globalRegistry;
+  return getState().registry;
 }
 
 /**
  * Check if any hooks are registered for a given hook name.
  */
 export function hasGlobalHooks(hookName: Parameters<HookRunner["hasHooks"]>[0]): boolean {
-  return globalHookRunner?.hasHooks(hookName) ?? false;
+  return getState().hookRunner?.hasHooks(hookName) ?? false;
 }
 
 export async function runGlobalGatewayStopSafely(params: {
@@ -83,6 +100,7 @@ export async function runGlobalGatewayStopSafely(params: {
  * Reset the global hook runner (for testing).
  */
 export function resetGlobalHookRunner(): void {
-  globalHookRunner = null;
-  globalRegistry = null;
+  const state = getState();
+  state.hookRunner = null;
+  state.registry = null;
 }

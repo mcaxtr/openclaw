@@ -257,8 +257,9 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
       return;
     }
 
+    // Tag as "plugin" so these hooks survive clearInternalHooks()
     for (const event of normalizedEvents) {
-      registerInternalHook(event, handler);
+      registerInternalHook(event, handler, "plugin");
     }
   };
 
