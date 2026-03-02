@@ -21,6 +21,25 @@
   - Extensions (channel plugins): `extensions/*` (e.g. `extensions/msteams`, `extensions/matrix`, `extensions/zalo`, `extensions/zalouser`, `extensions/voice-call`)
 - When adding channels/extensions/apps/docs, update `.github/labeler.yml` and create matching GitHub labels (use existing channel/extension label colors).
 
+## Hook System Architecture
+
+The codebase has two hook dispatch facades sharing a unified backing registry:
+
+- **Internal hooks** (`src/hooks/internal-hooks.ts`): `registerInternalHook()` / `triggerInternalHook()` — single-arg handlers for file-based HOOK.md events (command, session, agent, gateway, message).
+- **Plugin typed hooks** (`src/plugins/hooks.ts`): `HookRunner.run*()` — typed 2-arg handlers for plugin lifecycle events (24 event types).
+- **Unified registry** (`src/hooks/hook-registry.ts`): `globalThis[Symbol.for("openclaw:hookRegistry")]` — single Map backing both systems. Must not be bypassed.
+
+Key rules:
+
+- DO NOT create module-level `let`/`const` for hook state. All state lives on `globalThis` via `Symbol.for()` to survive Rolldown bundler chunk splitting.
+- `clearInternalHooks()` uses `FILE_HOOK_SOURCES` (bundled/workspace/managed/config) — preserves plugin hooks. Use `clearAllHooks()` only in tests.
+- Plugin hook clearing (`clearHooksBySource(["plugin"])`) lives inside `loadOpenClawPlugins()` on the non-cached path. Do NOT clear plugin hooks in `server.impl.ts` or `server-startup.ts` — the loader cache fast path would cause hooks to be lost forever on SIGUSR1 restart.
+- Three events overlap between both systems: `message_received`, `message_sent`, `gateway:startup`. Use the dispatch helpers in `src/hooks/dispatch-unified.ts` — never dual-dispatch manually.
+- When adding a new overlapping event, add a helper in `dispatch-unified.ts`.
+- For events in only one system, call that system directly: `triggerInternalHook()` for internal-only, `hookRunner.run*()` for typed-only.
+- `hook-runner-global.ts` stores state via `globalThis[Symbol.for("openclaw:hookRunner")]` — same pattern.
+- JSONL session transcript reading: use `readSessionMessagesAsync()` from `src/gateway/session-utils.ts` — do not duplicate the parse loop.
+
 ## Docs Linking (Mintlify)
 
 - Docs are hosted on Mintlify (docs.openclaw.ai).
