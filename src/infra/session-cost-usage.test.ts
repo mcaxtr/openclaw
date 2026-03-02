@@ -12,6 +12,9 @@ import {
   loadSessionUsageTimeSeries,
 } from "./session-cost-usage.js";
 
+// Helpers tested via public API since they are file-private.
+// Test names describe the CONTRACT, not the implementation.
+
 describe("session cost usage", () => {
   const withStateDir = async <T>(stateDir: string, fn: () => Promise<T>): Promise<T> =>
     await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, fn);
@@ -441,5 +444,154 @@ example
     expect(totalCost).toBeCloseTo(0.055, 8);
     expect(lastPoint?.cumulativeTokens).toBe(165);
     expect(lastPoint?.cumulativeCost).toBeCloseTo(0.055, 8);
+  });
+
+  // ---- resolveSessionFileForQuery contract ----
+  // The helper is file-private; exercised through the three public loaders.
+
+  it("returns null for all loaders when sessionFile does not exist", async () => {
+    const nonExistent = "/tmp/no-such-session-abc123.jsonl";
+    const [summary, timeseries, logs] = await Promise.all([
+      loadSessionCostSummary({ sessionFile: nonExistent }),
+      loadSessionUsageTimeSeries({ sessionFile: nonExistent }),
+      loadSessionLogs({ sessionFile: nonExistent }),
+    ]);
+    expect(summary).toBeNull();
+    expect(timeseries).toBeNull();
+    expect(logs).toBeNull();
+  });
+
+  it("returns null for all loaders when neither sessionFile nor sessionId is supplied", async () => {
+    const [summary, timeseries, logs] = await Promise.all([
+      loadSessionCostSummary({}),
+      loadSessionUsageTimeSeries({}),
+      loadSessionLogs({}),
+    ]);
+    expect(summary).toBeNull();
+    expect(timeseries).toBeNull();
+    expect(logs).toBeNull();
+  });
+
+  // ---- applyEntryCost contract ----
+  // Verified through loadCostUsageSummary: both costBreakdown and costTotal paths must sum correctly.
+
+  it("accumulates cost from costBreakdown.total (not costTotal) when both are present", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-apply-entry-cost-"));
+    const sessionsDir = path.join(root, "agents", "main", "sessions");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const sessionFile = path.join(sessionsDir, "sess-cost-breakdown.jsonl");
+    const now = new Date();
+
+    // Entry with costBreakdown embedded in usage (used by applyEntryCost via costBreakdown path)
+    const entry = {
+      type: "message",
+      timestamp: now.toISOString(),
+      message: {
+        role: "assistant",
+        provider: "openai",
+        model: "gpt-5.2",
+        usage: {
+          input: 100,
+          output: 50,
+          totalTokens: 150,
+          // costBreakdown embedded as "cost" in usage — this is the canonical format
+          cost: { total: 0.99, input: 0.5, output: 0.49 },
+        },
+      },
+    };
+
+    await fs.writeFile(sessionFile, JSON.stringify(entry), "utf-8");
+
+    await withEnvAsync({ OPENCLAW_STATE_DIR: root }, async () => {
+      const summary = await loadCostUsageSummary({
+        startMs: now.getTime() - 1000,
+        endMs: now.getTime() + 1000,
+      });
+      // Must use costBreakdown.total (0.99), not fall through to costTotal
+      expect(summary.totals.totalCost).toBeCloseTo(0.99, 5);
+      expect(summary.totals.inputCost).toBeCloseTo(0.5, 5);
+      expect(summary.totals.outputCost).toBeCloseTo(0.49, 5);
+    });
+  });
+
+  // ---- extractTextContent contract ----
+  // The helper is file-private; exercised via discoverAllSessions (firstUserMessage) and loadSessionLogs.
+
+  it("extracts plain string content as firstUserMessage", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-extract-text-"));
+    const sessionsDir = path.join(root, "agents", "main", "sessions");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const sessionFile = path.join(sessionsDir, "sess-text.jsonl");
+
+    await fs.writeFile(
+      sessionFile,
+      JSON.stringify({
+        type: "message",
+        timestamp: new Date().toISOString(),
+        message: { role: "user", content: "plain string content" },
+      }),
+      "utf-8",
+    );
+
+    await withEnvAsync({ OPENCLAW_STATE_DIR: root }, async () => {
+      const sessions = await discoverAllSessions();
+      expect(sessions[0]?.firstUserMessage).toBe("plain string content");
+    });
+  });
+
+  it("extracts text from content blocks and returns first text block as firstUserMessage", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-extract-blocks-"));
+    const sessionsDir = path.join(root, "agents", "main", "sessions");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const sessionFile = path.join(sessionsDir, "sess-blocks.jsonl");
+
+    await fs.writeFile(
+      sessionFile,
+      JSON.stringify({
+        type: "message",
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "user",
+          content: [
+            { type: "text", text: "block message content" },
+            { type: "image_url", url: "http://example.com/img.png" },
+          ],
+        },
+      }),
+      "utf-8",
+    );
+
+    await withEnvAsync({ OPENCLAW_STATE_DIR: root }, async () => {
+      const sessions = await discoverAllSessions();
+      expect(sessions[0]?.firstUserMessage).toBe("block message content");
+    });
+  });
+
+  it("renders tool_use and tool_result blocks in loadSessionLogs content", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-extract-tool-blocks-"));
+    const sessionFile = path.join(root, "sess-tool.jsonl");
+
+    await fs.writeFile(
+      sessionFile,
+      JSON.stringify({
+        type: "message",
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "Let me check." },
+            { type: "tool_use", name: "get_weather" },
+            { type: "tool_result" },
+          ],
+        },
+      }),
+      "utf-8",
+    );
+
+    const logs = await loadSessionLogs({ sessionFile });
+    expect(logs).toHaveLength(1);
+    expect(logs?.[0]?.content).toContain("Let me check.");
+    expect(logs?.[0]?.content).toContain("[Tool: get_weather]");
+    expect(logs?.[0]?.content).toContain("[Tool Result]");
   });
 });
