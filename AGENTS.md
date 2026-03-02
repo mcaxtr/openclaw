@@ -136,6 +136,7 @@
 
 ## Security & Configuration Tips
 
+- **Config defaults pipeline**: `applyAllConfigDefaults()` in `src/config/defaults.ts` is the single entry point for all config defaults. Add new defaults stages inside it — never chain individual `apply*Defaults` at call sites. `applyTalkApiKey` is intentionally separate (reads env vars at call time); post-pipeline transforms (`normalizeConfigPaths`, `normalizeExecSafeBinProfilesInConfig`) stay at call sites.
 - Web provider stores creds at `~/.openclaw/credentials/`; rerun `openclaw login` if logged out.
 - Pi sessions live under `~/.openclaw/sessions/` by default; the base directory is not configurable.
 - Environment variables: see `~/.profile`.
