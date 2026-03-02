@@ -16,17 +16,7 @@ import {
 import { VERSION } from "../version.js";
 import { DuplicateAgentDirError, findDuplicateAgentDirs } from "./agent-dirs.js";
 import { maintainConfigBackups } from "./backup-rotation.js";
-import {
-  applyCompactionDefaults,
-  applyContextPruningDefaults,
-  applyAgentDefaults,
-  applyLoggingDefaults,
-  applyMessageDefaults,
-  applyModelDefaults,
-  applySessionDefaults,
-  applyTalkConfigNormalization,
-  applyTalkApiKey,
-} from "./defaults.js";
+import { applyAllConfigDefaults, applyTalkApiKey } from "./defaults.js";
 import { restoreEnvVarRefs } from "./env-preserve.js";
 import {
   MissingEnvVarError,
@@ -732,17 +722,8 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
         deps.logger.warn(`Config warnings:\\n${details}`);
       }
       warnIfConfigFromFuture(validated.config, deps.logger);
-      const cfg = applyTalkConfigNormalization(
-        applyModelDefaults(
-          applyCompactionDefaults(
-            applyContextPruningDefaults(
-              applyAgentDefaults(
-                applySessionDefaults(applyLoggingDefaults(applyMessageDefaults(validated.config))),
-              ),
-            ),
-          ),
-        ),
-      );
+      // @see src/config/defaults.ts — applyAllConfigDefaults for the canonical pipeline
+      const cfg = applyAllConfigDefaults(validated.config);
       normalizeConfigPaths(cfg);
       normalizeExecSafeBinProfilesInConfig(cfg);
 
@@ -822,17 +803,8 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
     const exists = deps.fs.existsSync(configPath);
     if (!exists) {
       const hash = hashConfigRaw(null);
-      const config = applyTalkApiKey(
-        applyTalkConfigNormalization(
-          applyModelDefaults(
-            applyCompactionDefaults(
-              applyContextPruningDefaults(
-                applyAgentDefaults(applySessionDefaults(applyMessageDefaults({}))),
-              ),
-            ),
-          ),
-        ),
-      );
+      // @see src/config/defaults.ts — applyAllConfigDefaults for the canonical pipeline
+      const config = applyTalkApiKey(applyAllConfigDefaults({}));
       const legacyIssues: LegacyConfigIssue[] = [];
       return {
         snapshot: {
@@ -949,16 +921,9 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       }
 
       warnIfConfigFromFuture(validated.config, deps.logger);
+      // @see src/config/defaults.ts — applyAllConfigDefaults for the canonical pipeline
       const snapshotConfig = normalizeConfigPaths(
-        applyTalkApiKey(
-          applyTalkConfigNormalization(
-            applyModelDefaults(
-              applyAgentDefaults(
-                applySessionDefaults(applyLoggingDefaults(applyMessageDefaults(validated.config))),
-              ),
-            ),
-          ),
-        ),
+        applyTalkApiKey(applyAllConfigDefaults(validated.config)),
       );
       normalizeExecSafeBinProfilesInConfig(snapshotConfig);
       return {

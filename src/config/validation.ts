@@ -19,7 +19,7 @@ import { isCanonicalDottedDecimalIPv4, isLoopbackIpAddress } from "../shared/net
 import { isRecord } from "../utils.js";
 import { findDuplicateAgentDirs, formatDuplicateAgentDirError } from "./agent-dirs.js";
 import { appendAllowedValuesHint, summarizeAllowedValues } from "./allowed-values.js";
-import { applyAgentDefaults, applyModelDefaults, applySessionDefaults } from "./defaults.js";
+import { applyAllConfigDefaults } from "./defaults.js";
 import { findLegacyConfigIssues } from "./legacy.js";
 import type { OpenClawConfig, ConfigValidationIssue } from "./types.js";
 import { OpenClawSchema } from "./zod-schema.js";
@@ -279,9 +279,10 @@ export function validateConfigObject(
   if (!result.ok) {
     return result;
   }
+  // @see src/config/defaults.ts — applyAllConfigDefaults for the canonical pipeline
   return {
     ok: true,
-    config: applyModelDefaults(applyAgentDefaults(applySessionDefaults(result.config))),
+    config: applyAllConfigDefaults(result.config),
   };
 }
 

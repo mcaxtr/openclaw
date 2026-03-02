@@ -530,6 +530,23 @@ export function applyCompactionDefaults(cfg: OpenClawConfig): OpenClawConfig {
   };
 }
 
-export function resetSessionDefaultsWarningForTests() {
-  defaultWarnState = { warned: false };
+/**
+ * Canonical config defaults pipeline — single source of truth.
+ *
+ * Single entry point for all config defaults. Add new stages here — never
+ * chain individual apply*Defaults at call sites (see PR #30899).
+ *
+ * Not included: `applyTalkApiKey` (env-dependent, snapshot-only) and
+ * post-pipeline transforms (`normalizeConfigPaths`, `normalizeExecSafeBinProfilesInConfig`).
+ */
+export function applyAllConfigDefaults(cfg: OpenClawConfig): OpenClawConfig {
+  return applyTalkConfigNormalization(
+    applyModelDefaults(
+      applyCompactionDefaults(
+        applyContextPruningDefaults(
+          applyAgentDefaults(applySessionDefaults(applyLoggingDefaults(applyMessageDefaults(cfg)))),
+        ),
+      ),
+    ),
+  );
 }
