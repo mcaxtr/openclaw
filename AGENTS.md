@@ -85,6 +85,7 @@
 - Keep files concise; extract helpers instead of “V2” copies. Use existing patterns for CLI options and dependency injection via `createDefaultDeps`.
 - Aim to keep files under ~700 LOC; guideline only (not a hard guardrail). Split/refactor when it improves clarity or testability.
 - Naming: use **OpenClaw** for product/app/docs headings; use `openclaw` for CLI command, package/binary, paths, and config keys.
+- **Batch embedding lifecycle**: use `waitForBatch()` from `src/memory/batch-lifecycle.ts`. Do not write per-provider poll/wait loops — it handles state detection, timeout, error extraction, and configurable polling via the `BatchLifecycleAdapter` interface.
 
 ## Release Channels (Naming)
 
