@@ -161,6 +161,11 @@
 
 - Rebrand/migration issues or legacy config/service warnings: run `openclaw doctor` (see `docs/gateway/doctor.md`).
 
+## Session Cost/Usage Helpers
+
+- **Session cost/usage helpers**: use `resolveSessionFileForQuery()`, `applyEntryCost()`, and `extractTextContent()` from `src/infra/session-cost-usage.ts`.
+- Do not duplicate session file resolution, cost accumulation, or content extraction inline; all three helpers are file-private — call them from within that file only.
+
 ## Agent-Specific Notes
 
 - Vocabulary: "makeup" = "mac app".
