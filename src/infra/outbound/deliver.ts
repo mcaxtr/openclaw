@@ -18,7 +18,7 @@ import {
   resolveMirroredTranscriptText,
 } from "../../config/sessions.js";
 import type { sendMessageDiscord } from "../../discord/send.js";
-import { createInternalHookEvent, triggerInternalHook } from "../../hooks/internal-hooks.js";
+import { emitMessageSent } from "../../hooks/dispatch-unified.js";
 import type { sendMessageIMessage } from "../../imessage/send.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { getAgentScopedMediaLocalRoots } from "../../media/local-roots.js";
@@ -452,13 +452,9 @@ async function deliverOutboundPayloadsCore(
     const normalized = normalizeWhatsAppPayload(payload);
     return normalized ? [normalized] : [];
   });
+  const sessionKeyForHooks = params.mirror?.sessionKey ?? params.session?.key;
   const hookRunner = getGlobalHookRunner();
-  const sessionKeyForInternalHooks = params.mirror?.sessionKey ?? params.session?.key;
-  if (
-    hookRunner?.hasHooks("message_sent") &&
-    params.session?.agentId &&
-    !sessionKeyForInternalHooks
-  ) {
+  if (hookRunner?.hasHooks("message_sent") && params.session?.agentId && !sessionKeyForHooks) {
     log.warn(
       "deliverOutboundPayloads: session.agentId present without session key; internal message:sent hook will be skipped",
       {
@@ -474,44 +470,24 @@ async function deliverOutboundPayloadsCore(
       mediaUrls: payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []),
       channelData: payload.channelData,
     };
-    const emitMessageSent = (params: {
+    // Unified dispatch — fires both plugin and internal hooks (fire-and-forget)
+    const emitSent = (sentParams: {
       success: boolean;
       content: string;
       error?: string;
       messageId?: string;
     }) => {
-      if (hookRunner?.hasHooks("message_sent")) {
-        void hookRunner
-          .runMessageSent(
-            {
-              to,
-              content: params.content,
-              success: params.success,
-              ...(params.error ? { error: params.error } : {}),
-            },
-            {
-              channelId: channel,
-              accountId: accountId ?? undefined,
-              conversationId: to,
-            },
-          )
-          .catch(() => {});
-      }
-      if (!sessionKeyForInternalHooks) {
-        return;
-      }
-      void triggerInternalHook(
-        createInternalHookEvent("message", "sent", sessionKeyForInternalHooks, {
-          to,
-          content: params.content,
-          success: params.success,
-          ...(params.error ? { error: params.error } : {}),
-          channelId: channel,
-          accountId: accountId ?? undefined,
-          conversationId: to,
-          messageId: params.messageId,
-        }),
-      ).catch(() => {});
+      emitMessageSent({
+        to,
+        content: sentParams.content,
+        success: sentParams.success,
+        error: sentParams.error,
+        channelId: channel,
+        accountId: accountId ?? undefined,
+        conversationId: to,
+        messageId: sentParams.messageId,
+        sessionKey: sessionKeyForHooks,
+      });
     };
     try {
       throwIfAborted(abortSignal);
@@ -551,7 +527,7 @@ async function deliverOutboundPayloadsCore(
       if (handler.sendPayload && effectivePayload.channelData) {
         const delivery = await handler.sendPayload(effectivePayload, sendOverrides);
         results.push(delivery);
-        emitMessageSent({
+        emitSent({
           success: true,
           content: payloadSummary.text,
           messageId: delivery.messageId,
@@ -566,7 +542,7 @@ async function deliverOutboundPayloadsCore(
           await sendTextChunks(payloadSummary.text, sendOverrides);
         }
         const messageId = results.at(-1)?.messageId;
-        emitMessageSent({
+        emitSent({
           success: results.length > beforeCount,
           content: payloadSummary.text,
           messageId,
@@ -590,13 +566,13 @@ async function deliverOutboundPayloadsCore(
           lastMessageId = delivery.messageId;
         }
       }
-      emitMessageSent({
+      emitSent({
         success: true,
         content: payloadSummary.text,
         messageId: lastMessageId,
       });
     } catch (err) {
-      emitMessageSent({
+      emitSent({
         success: false,
         content: payloadSummary.text,
         error: err instanceof Error ? err.message : String(err),

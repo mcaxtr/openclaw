@@ -12,12 +12,9 @@ import { cleanStaleLockFiles } from "../agents/session-write-lock.js";
 import type { CliDeps } from "../cli/deps.js";
 import type { loadConfig } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
+import { emitGatewayStartup } from "../hooks/dispatch-unified.js";
 import { startGmailWatcherWithLogs } from "../hooks/gmail-watcher-lifecycle.js";
-import {
-  clearInternalHooks,
-  createInternalHookEvent,
-  triggerInternalHook,
-} from "../hooks/internal-hooks.js";
+import { clearInternalHooks } from "../hooks/internal-hooks.js";
 import { loadInternalHooks } from "../hooks/loader.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import type { loadOpenClawPlugins } from "../plugins/loader.js";
@@ -110,7 +107,9 @@ export async function startGatewaySidecars(params: {
 
   // Load internal hook handlers from configuration and directory discovery.
   try {
-    // Clear any previously registered hooks to ensure fresh loading
+    // Clear file-discovered hooks but preserve plugin-registered hooks.
+    // Plugin-source hooks are cleared separately before loadGatewayPlugins()
+    // in server.impl.ts to avoid duplicates on SIGUSR1 restart.
     clearInternalHooks();
     const loadedCount = await loadInternalHooks(params.cfg, params.defaultWorkspaceDir);
     if (loadedCount > 0) {
@@ -139,15 +138,14 @@ export async function startGatewaySidecars(params: {
     );
   }
 
+  // Fire gateway:startup hook synchronously after hooks and channels are loaded.
+  // Previously used setTimeout(250) which created a race condition (#25074).
   if (params.cfg.hooks?.internal?.enabled) {
-    setTimeout(() => {
-      const hookEvent = createInternalHookEvent("gateway", "startup", "gateway:startup", {
-        cfg: params.cfg,
-        deps: params.deps,
-        workspaceDir: params.defaultWorkspaceDir,
-      });
-      void triggerInternalHook(hookEvent);
-    }, 250);
+    emitGatewayStartup({
+      cfg: params.cfg,
+      deps: params.deps,
+      workspaceDir: params.defaultWorkspaceDir,
+    });
   }
 
   let pluginServices: PluginServicesHandle | null = null;
