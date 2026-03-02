@@ -437,6 +437,22 @@ function accumulateLatency(
   }
 }
 
+/** Derives raw token count and cost from a parsed transcript entry (requires non-null `entry.usage`). */
+function deriveEntryTokensAndCost(entry: ParsedTranscriptEntry): { tokens: number; cost: number } {
+  const usage = entry.usage!;
+  const tokens =
+    (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+  const cost =
+    entry.costBreakdown?.total ??
+    (entry.costBreakdown
+      ? (entry.costBreakdown.input ?? 0) +
+        (entry.costBreakdown.output ?? 0) +
+        (entry.costBreakdown.cacheRead ?? 0) +
+        (entry.costBreakdown.cacheWrite ?? 0)
+      : (entry.costTotal ?? 0));
+  return { tokens, cost };
+}
+
 /**
  * Accumulates per-day token and cost buckets from a usage-bearing transcript entry.
  */
@@ -449,19 +465,7 @@ function accumulateDailyUsage(
   }
 
   const dayKey = formatDayKey(entry.timestamp);
-  const entryTokens =
-    (entry.usage.input ?? 0) +
-    (entry.usage.output ?? 0) +
-    (entry.usage.cacheRead ?? 0) +
-    (entry.usage.cacheWrite ?? 0);
-  const entryCost =
-    entry.costBreakdown?.total ??
-    (entry.costBreakdown
-      ? (entry.costBreakdown.input ?? 0) +
-        (entry.costBreakdown.output ?? 0) +
-        (entry.costBreakdown.cacheRead ?? 0) +
-        (entry.costBreakdown.cacheWrite ?? 0)
-      : (entry.costTotal ?? 0));
+  const { tokens: entryTokens, cost: entryCost } = deriveEntryTokensAndCost(entry);
 
   const existing = dailyMap.get(dayKey) ?? { tokens: 0, cost: 0 };
   dailyMap.set(dayKey, {
@@ -485,19 +489,7 @@ function accumulateModelUsage(
     return;
   }
 
-  const entryTokens =
-    (entry.usage.input ?? 0) +
-    (entry.usage.output ?? 0) +
-    (entry.usage.cacheRead ?? 0) +
-    (entry.usage.cacheWrite ?? 0);
-  const entryCost =
-    entry.costBreakdown?.total ??
-    (entry.costBreakdown
-      ? (entry.costBreakdown.input ?? 0) +
-        (entry.costBreakdown.output ?? 0) +
-        (entry.costBreakdown.cacheRead ?? 0) +
-        (entry.costBreakdown.cacheWrite ?? 0)
-      : (entry.costTotal ?? 0));
+  const { tokens: entryTokens, cost: entryCost } = deriveEntryTokensAndCost(entry);
 
   // Per-model aggregate
   const key = `${entry.provider ?? "unknown"}::${entry.model ?? "unknown"}`;
