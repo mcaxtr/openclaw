@@ -235,11 +235,11 @@ describe("sendMessageTelegram", () => {
         firstCall: {
           parse_mode: "HTML",
           message_thread_id: 271,
-          reply_to_message_id: 100,
+          reply_parameters: { message_id: 100 },
         },
         secondCall: {
           message_thread_id: 271,
-          reply_to_message_id: 100,
+          reply_parameters: { message_id: 100 },
         },
       },
     ] as const;
@@ -677,10 +677,10 @@ describe("sendMessageTelegram", () => {
         options: {
           replyToMessageId: 999,
         },
-        expectedVideoNote: { reply_to_message_id: 999 },
+        expectedVideoNote: { reply_parameters: { message_id: 999 } },
         expectedMessage: {
           parse_mode: "HTML",
-          reply_to_message_id: 999,
+          reply_parameters: { message_id: 999 },
         },
       },
     ];
@@ -847,7 +847,7 @@ describe("sendMessageTelegram", () => {
           caption: "voice note",
           parse_mode: "HTML",
           message_thread_id: 271,
-          reply_to_message_id: 500,
+          reply_parameters: { message_id: 500 },
         },
       },
       {
@@ -1310,7 +1310,7 @@ describe("sendStickerTelegram", () => {
 });
 
 describe("shared send behaviors", () => {
-  it("includes reply_to_message_id for threaded replies", async () => {
+  it("includes reply_parameters for threaded replies", async () => {
     const cases = [
       {
         name: "message send",
@@ -1330,7 +1330,7 @@ describe("shared send behaviors", () => {
           });
           expect(sendMessage).toHaveBeenCalledWith(chatId, "reply text", {
             parse_mode: "HTML",
-            reply_to_message_id: 100,
+            reply_parameters: { message_id: 100 },
           });
         },
       },
@@ -1352,7 +1352,7 @@ describe("shared send behaviors", () => {
             replyToMessageId: 500,
           });
           expect(sendSticker).toHaveBeenCalledWith(chatId, fileId, {
-            reply_to_message_id: 500,
+            reply_parameters: { message_id: 500 },
           });
         },
       },

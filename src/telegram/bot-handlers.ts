@@ -974,7 +974,7 @@ export const registerTelegramHandlers = ({
             runtime,
             fn: () =>
               bot.api.sendMessage(chatId, `⚠️ File too large. Maximum size is ${limitMb}MB.`, {
-                reply_to_message_id: msg.message_id,
+                reply_parameters: { message_id: msg.message_id },
               }),
           }).catch(() => {});
         }
@@ -987,7 +987,7 @@ export const registerTelegramHandlers = ({
         runtime,
         fn: () =>
           bot.api.sendMessage(chatId, "⚠️ Failed to download media. Please try again.", {
-            reply_to_message_id: msg.message_id,
+            reply_parameters: { message_id: msg.message_id },
           }),
       }).catch(() => {});
       return;
