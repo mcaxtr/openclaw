@@ -167,6 +167,7 @@
 - Signal: "update fly" => `fly ssh console -a flawd-bot -C "bash -lc 'cd /data/clawd/openclaw && git pull --rebase origin main'"` then `fly machines restart e825232f34d058 -a flawd-bot`.
 - When working on a GitHub Issue or PR, print the full URL at the end of the task.
 - When answering questions, respond with high-confidence answers only: verify in code; do not guess.
+- Command auth canonical rule: keep `commands.allowFrom` precedence in `src/auto-reply/command-auth.ts` via `resolveCanonicalCommandSenderAuthorization`; channel/native handlers must call that helper instead of reimplementing precedence logic, and auth-path changes must include parity tests.
 - Never update the Carbon dependency.
 - Any dependency with `pnpm.patchedDependencies` must use an exact version (no `^`/`~`).
 - Patching dependencies (pnpm patches, overrides, or vendored changes) requires explicit approval; do not do this by default.

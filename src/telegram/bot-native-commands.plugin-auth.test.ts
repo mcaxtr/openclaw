@@ -23,6 +23,72 @@ vi.mock("../pairing/pairing-store.js", () => ({
 }));
 
 describe("registerTelegramNativeCommands (plugin auth)", () => {
+  function registerPluginCommandHandler(params: {
+    cfg: OpenClawConfig;
+    allowFrom?: string[];
+    groupAllowFrom?: string[];
+  }): {
+    handler: ((ctx: unknown) => Promise<void>) | undefined;
+    sendMessage: ReturnType<typeof vi.fn>;
+  } {
+    getPluginCommandSpecs.mockClear();
+    matchPluginCommand.mockClear();
+    executePluginCommand.mockClear();
+    deliverReplies.mockClear();
+
+    const command = {
+      name: "plugin",
+      description: "Plugin command",
+      requireAuth: true,
+      handler: vi.fn(),
+    } as const;
+
+    getPluginCommandSpecs.mockReturnValue([{ name: "plugin", description: "Plugin command" }]);
+    matchPluginCommand.mockReturnValue({ command, args: undefined });
+    executePluginCommand.mockResolvedValue({ text: "ok" });
+
+    const handlers: Record<string, (ctx: unknown) => Promise<void>> = {};
+    const sendMessage = vi.fn();
+    const bot = {
+      api: {
+        setMyCommands: vi.fn().mockResolvedValue(undefined),
+        sendMessage,
+      },
+      command: (name: string, handler: (ctx: unknown) => Promise<void>) => {
+        handlers[name] = handler;
+      },
+    } as const;
+
+    registerTelegramNativeCommands({
+      bot: bot as unknown as Parameters<typeof registerTelegramNativeCommands>[0]["bot"],
+      cfg: params.cfg,
+      runtime: {} as unknown as RuntimeEnv,
+      accountId: "default",
+      telegramCfg: {} as TelegramAccountConfig,
+      allowFrom: params.allowFrom ?? [],
+      groupAllowFrom: params.groupAllowFrom ?? [],
+      replyToMode: "off",
+      textLimit: 4000,
+      useAccessGroups: false,
+      nativeEnabled: false,
+      nativeSkillsEnabled: false,
+      nativeDisabledExplicit: false,
+      resolveGroupPolicy: () =>
+        ({
+          allowlistEnabled: false,
+          allowed: true,
+        }) as ChannelGroupPolicy,
+      resolveTelegramGroupConfig: () => ({
+        groupConfig: undefined,
+        topicConfig: undefined,
+      }),
+      shouldSkipUpdate: () => false,
+      opts: { token: "token" },
+    });
+
+    return { handler: handlers.plugin, sendMessage };
+  }
+
   it("does not register plugin commands in menu when native=false but keeps handlers available", () => {
     const specs = Array.from({ length: 101 }, (_, i) => ({
       name: `cmd_${i}`,
@@ -153,5 +219,117 @@ describe("registerTelegramNativeCommands (plugin auth)", () => {
       }),
     );
     expect(bot.api.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("allows native group plugin commands via commands.allowFrom global override", async () => {
+    const { handler, sendMessage } = registerPluginCommandHandler({
+      cfg: {
+        commands: {
+          allowFrom: {
+            "*": ["111"],
+          },
+        },
+      } as OpenClawConfig,
+      allowFrom: ["999"],
+    });
+
+    await handler?.({
+      message: {
+        chat: { id: -100123, type: "supergroup" },
+        from: { id: 111, username: "allowed" },
+        message_id: 10,
+        date: 123456,
+      },
+      match: "",
+    });
+
+    expect(executePluginCommand).toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      -100123,
+      "You are not authorized to use this command.",
+    );
+  });
+
+  it("allows native group plugin commands via commands.allowFrom provider-specific override", async () => {
+    const { handler, sendMessage } = registerPluginCommandHandler({
+      cfg: {
+        commands: {
+          allowFrom: {
+            "*": ["global-user"],
+            telegram: ["111"],
+          },
+        },
+      } as OpenClawConfig,
+      allowFrom: ["999"],
+    });
+
+    await handler?.({
+      message: {
+        chat: { id: -100456, type: "supergroup" },
+        from: { id: 111, username: "allowed" },
+        message_id: 11,
+        date: 123457,
+      },
+      match: "",
+    });
+
+    expect(executePluginCommand).toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      -100456,
+      "You are not authorized to use this command.",
+    );
+  });
+
+  it("keeps native fallback authorization when commands.allowFrom is not configured", async () => {
+    const { handler, sendMessage } = registerPluginCommandHandler({
+      cfg: {} as OpenClawConfig,
+      allowFrom: ["999"],
+    });
+
+    await handler?.({
+      message: {
+        chat: { id: -100789, type: "supergroup" },
+        from: { id: 111, username: "denied" },
+        message_id: 12,
+        date: 123458,
+      },
+      match: "",
+    });
+
+    expect(executePluginCommand).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(
+      -100789,
+      "You are not authorized to use this command.",
+    );
+  });
+
+  it("prefers provider-specific commands.allowFrom over global for native auth", async () => {
+    const { handler, sendMessage } = registerPluginCommandHandler({
+      cfg: {
+        commands: {
+          allowFrom: {
+            "*": ["111"],
+            telegram: ["222"],
+          },
+        },
+      } as OpenClawConfig,
+      allowFrom: ["999"],
+    });
+
+    await handler?.({
+      message: {
+        chat: { id: -100987, type: "supergroup" },
+        from: { id: 111, username: "global-only" },
+        message_id: 13,
+        date: 123459,
+      },
+      match: "",
+    });
+
+    expect(executePluginCommand).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(
+      -100987,
+      "You are not authorized to use this command.",
+    );
   });
 });

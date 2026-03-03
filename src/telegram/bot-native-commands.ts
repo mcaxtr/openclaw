@@ -1,5 +1,9 @@
 import type { Bot, Context } from "grammy";
 import { resolveChunkMode } from "../auto-reply/chunk.js";
+import {
+  resolveCanonicalCommandSenderAuthorization,
+  resolveCommandSenderCandidates,
+} from "../auto-reply/command-auth.js";
 import type { CommandArgs } from "../auto-reply/commands-registry.js";
 import {
   buildCommandTextFromArgs,
@@ -284,7 +288,24 @@ async function resolveTelegramCommandAuth(params: {
     authorizers: [{ configured: dmAllow.hasEntries, allowed: senderAllowed }],
     modeWhenAccessGroupsOff: "configured",
   });
-  if (requireAuth && !commandAuthorized) {
+  const senderCandidates = resolveCommandSenderCandidates({
+    cfg,
+    providerId: "telegram",
+    accountId,
+    senderId,
+    from: isGroup ? buildTelegramGroupFrom(chatId, resolvedThreadId) : `telegram:${chatId}`,
+    chatType: isGroup ? "group" : "direct",
+  });
+  // Keep Telegram-specific prechecks above, but route final sender auth through the
+  // canonical command-auth helper so commands.allowFrom precedence cannot drift.
+  const commandAuthorizedWithOverrides = resolveCanonicalCommandSenderAuthorization({
+    cfg,
+    accountId,
+    providerId: "telegram",
+    senderCandidates,
+    fallbackAuthorized: commandAuthorized,
+  });
+  if (requireAuth && !commandAuthorizedWithOverrides) {
     return await rejectNotAuthorized();
   }
 
@@ -297,7 +318,7 @@ async function resolveTelegramCommandAuth(params: {
     senderUsername,
     groupConfig,
     topicConfig,
-    commandAuthorized,
+    commandAuthorized: commandAuthorizedWithOverrides,
   };
 }
 
