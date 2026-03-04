@@ -144,7 +144,10 @@ function resolveOwnerAllowFromList(params: {
 /**
  * Resolves the commands.allowFrom list for a given provider.
  * Returns the provider-specific list if defined, otherwise the "*" global list.
- * Returns null if commands.allowFrom is not configured at all (fall back to channel allowFrom).
+ * Returns null only when neither provider-specific nor "*" list is configured.
+ *
+ * Important: an explicit provider list of [] is treated as an explicit deny-all
+ * override for that provider (it does not fall back to "*").
  */
 function resolveCommandsAllowFromList(params: {
   dock?: ChannelDock;
@@ -158,7 +161,7 @@ function resolveCommandsAllowFromList(params: {
     return null; // Not configured, fall back to channel allowFrom
   }
 
-  // Check provider-specific list first, then fall back to global "*"
+  // Provider-specific list (including an explicit empty array) overrides global "*".
   const providerKey = providerId ?? "";
   const providerList = commandsAllowFrom[providerKey];
   const globalList = commandsAllowFrom["*"];
@@ -250,6 +253,69 @@ function resolveSenderCandidates(params: {
   return normalized;
 }
 
+/**
+ * Canonical sender normalization for command authorization across all ingress paths.
+ *
+ * Channel handlers should pass raw sender identity fields and use the returned
+ * candidates as the single input to final command auth resolution.
+ */
+export function resolveCommandSenderCandidates(params: {
+  dock?: ChannelDock;
+  cfg: OpenClawConfig;
+  providerId?: ChannelId;
+  accountId?: string | null;
+  senderId?: string | null;
+  senderE164?: string | null;
+  from?: string | null;
+  chatType?: string | null;
+}): string[] {
+  const dock = params.dock ?? (params.providerId ? getChannelDock(params.providerId) : undefined);
+  return resolveSenderCandidates({
+    dock,
+    providerId: params.providerId,
+    cfg: params.cfg,
+    accountId: params.accountId,
+    senderId: params.senderId,
+    senderE164: params.senderE164,
+    from: params.from,
+    chatType: params.chatType,
+  });
+}
+
+/**
+ * Canonical final authorization for privileged commands.
+ *
+ * Precedence:
+ * 1) commands.allowFrom.<provider>
+ * 2) commands.allowFrom["*"]
+ * 3) fallbackAuthorized (only when neither provider nor "*" commands.allowFrom list is configured)
+ */
+export function resolveCanonicalCommandSenderAuthorization(params: {
+  dock?: ChannelDock;
+  cfg: OpenClawConfig;
+  accountId?: string | null;
+  providerId?: ChannelId;
+  senderCandidates: string[];
+  fallbackAuthorized: boolean;
+}): boolean {
+  const dock = params.dock ?? (params.providerId ? getChannelDock(params.providerId) : undefined);
+  const commandsAllowFromList = resolveCommandsAllowFromList({
+    dock,
+    cfg: params.cfg,
+    accountId: params.accountId,
+    providerId: params.providerId,
+  });
+  if (commandsAllowFromList === null) {
+    // Preserve current channel behavior when command-specific allowFrom is not configured.
+    return params.fallbackAuthorized;
+  }
+  const commandsAllowAll = commandsAllowFromList.some((entry) => entry.trim() === "*");
+  if (commandsAllowAll) {
+    return true;
+  }
+  return params.senderCandidates.some((candidate) => commandsAllowFromList.includes(candidate));
+}
+
 export function resolveCommandAuthorization(params: {
   ctx: MsgContext;
   cfg: OpenClawConfig;
@@ -260,14 +326,6 @@ export function resolveCommandAuthorization(params: {
   const dock = providerId ? getChannelDock(providerId) : undefined;
   const from = (ctx.From ?? "").trim();
   const to = (ctx.To ?? "").trim();
-
-  // Check if commands.allowFrom is configured (separate command authorization)
-  const commandsAllowFromList = resolveCommandsAllowFromList({
-    dock,
-    cfg,
-    accountId: ctx.AccountId,
-    providerId,
-  });
 
   const allowFromRaw = dock?.config?.resolveAllowFrom
     ? dock.config.resolveAllowFrom({ cfg, accountId: ctx.AccountId })
@@ -322,7 +380,7 @@ export function resolveCommandAuthorization(params: {
     ),
   );
 
-  const senderCandidates = resolveSenderCandidates({
+  const senderCandidates = resolveCommandSenderCandidates({
     dock,
     providerId,
     cfg,
@@ -351,21 +409,15 @@ export function resolveCommandAuthorization(params: {
       : ownerAllowlistConfigured
         ? senderIsOwner
         : allowAll || ownerCandidatesForCommands.length === 0 || Boolean(matchedCommandOwner);
-
-  // If commands.allowFrom is configured, use it for command authorization
-  // Otherwise, fall back to existing behavior (channel allowFrom + owner checks)
-  let isAuthorizedSender: boolean;
-  if (commandsAllowFromList !== null) {
-    // commands.allowFrom is configured - use it for authorization
-    const commandsAllowAll = commandsAllowFromList.some((entry) => entry.trim() === "*");
-    const matchedCommandsAllowFrom = commandsAllowFromList.length
-      ? senderCandidates.find((candidate) => commandsAllowFromList.includes(candidate))
-      : undefined;
-    isAuthorizedSender = commandsAllowAll || Boolean(matchedCommandsAllowFrom);
-  } else {
-    // Fall back to existing behavior
-    isAuthorizedSender = commandAuthorized && isOwnerForCommands;
-  }
+  // Keep channel-specific fallback logic above, but always finalize with canonical precedence.
+  const isAuthorizedSender = resolveCanonicalCommandSenderAuthorization({
+    dock,
+    cfg,
+    accountId: ctx.AccountId,
+    providerId,
+    senderCandidates,
+    fallbackAuthorized: commandAuthorized && isOwnerForCommands,
+  });
 
   return {
     providerId,

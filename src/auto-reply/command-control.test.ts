@@ -296,6 +296,33 @@ describe("resolveCommandAuthorization", () => {
       expect(whatsappAuth.isAuthorizedSender).toBe(true);
     });
 
+    it("treats empty provider-specific commands.allowFrom as explicit deny-all", () => {
+      const cfg = {
+        commands: {
+          allowFrom: {
+            "*": ["globaluser"],
+            whatsapp: [],
+          },
+        },
+        channels: { whatsapp: { allowFrom: ["*"] } },
+      } as OpenClawConfig;
+
+      const globalUserCtx = {
+        Provider: "whatsapp",
+        Surface: "whatsapp",
+        From: "whatsapp:globaluser",
+        SenderId: "globaluser",
+      } as MsgContext;
+
+      const auth = resolveCommandAuthorization({
+        ctx: globalUserCtx,
+        cfg,
+        commandAuthorized: true,
+      });
+
+      expect(auth.isAuthorizedSender).toBe(false);
+    });
+
     it("falls back to channel allowFrom when commands.allowFrom not set", () => {
       const cfg = {
         channels: { whatsapp: { allowFrom: ["+15551234567"] } },
