@@ -1,5 +1,9 @@
 import type { Bot, Context } from "grammy";
 import { resolveChunkMode } from "../auto-reply/chunk.js";
+import {
+  resolveCanonicalCommandSenderAuthorization,
+  resolveCommandSenderCandidates,
+} from "../auto-reply/command-auth.js";
 import type { CommandArgs } from "../auto-reply/commands-registry.js";
 import {
   buildCommandTextFromArgs,
@@ -13,6 +17,7 @@ import { finalizeInboundContext } from "../auto-reply/reply/inbound-context.js";
 import { dispatchReplyWithBufferedBlockDispatcher } from "../auto-reply/reply/provider-dispatcher.js";
 import { listSkillCommandsForAgents } from "../auto-reply/skill-commands.js";
 import { resolveCommandAuthorizedFromAuthorizers } from "../channels/command-gating.js";
+import { getChannelDock } from "../channels/dock.js";
 import { createReplyPrefixOptions } from "../channels/reply-prefix.js";
 import { recordInboundSessionMetaSafe } from "../channels/session-meta.js";
 import type { OpenClawConfig } from "../config/config.js";
@@ -233,7 +238,6 @@ async function resolveTelegramCommandAuth(params: {
     if (baseAccess.reason === "topic-disabled") {
       return await sendAuthMessage("This topic is disabled.");
     }
-    return await rejectNotAuthorized();
   }
 
   const policyAccess = evaluateTelegramGroupPolicyAccess({
@@ -258,12 +262,6 @@ async function resolveTelegramCommandAuth(params: {
     if (policyAccess.reason === "group-policy-disabled") {
       return await sendAuthMessage("Telegram group commands are disabled.");
     }
-    if (
-      policyAccess.reason === "group-policy-allowlist-no-sender" ||
-      policyAccess.reason === "group-policy-allowlist-unauthorized"
-    ) {
-      return await rejectNotAuthorized();
-    }
     if (policyAccess.reason === "group-chat-not-allowed") {
       return await sendAuthMessage("This group is not allowed.");
     }
@@ -284,7 +282,39 @@ async function resolveTelegramCommandAuth(params: {
     authorizers: [{ configured: dmAllow.hasEntries, allowed: senderAllowed }],
     modeWhenAccessGroupsOff: "configured",
   });
-  if (requireAuth && !commandAuthorized) {
+  // Keep Telegram-local auth signals as fallback; canonical commands.allowFrom
+  // finalization can override sender-authorization denies only.
+  const baseAuthorized = baseAccess.allowed
+    ? true
+    : baseAccess.reason !== "group-override-unauthorized";
+  const policyAuthorized = policyAccess.allowed
+    ? true
+    : policyAccess.reason !== "group-policy-allowlist-no-sender" &&
+      policyAccess.reason !== "group-policy-allowlist-unauthorized";
+  const fallbackAuthorized = baseAuthorized && policyAuthorized && commandAuthorized;
+  const telegramDock = getChannelDock("telegram");
+  const senderCandidates = resolveCommandSenderCandidates({
+    dock: telegramDock,
+    cfg,
+    providerId: "telegram",
+    accountId,
+    senderId,
+    from: isGroup ? buildTelegramGroupFrom(chatId, resolvedThreadId) : `telegram:${chatId}`,
+    chatType: isGroup ? "group" : "direct",
+  });
+  // Two-step auth contract:
+  // 1) keep Telegram-local checks as fallbackAuthorized
+  // 2) finalize through canonical commands.allowFrom precedence
+  // Use this final result for both deny/drop and CommandAuthorized context.
+  const commandAuthorizedWithOverrides = resolveCanonicalCommandSenderAuthorization({
+    dock: telegramDock,
+    cfg,
+    accountId,
+    providerId: "telegram",
+    senderCandidates,
+    fallbackAuthorized,
+  });
+  if (requireAuth && !commandAuthorizedWithOverrides) {
     return await rejectNotAuthorized();
   }
 
@@ -297,7 +327,7 @@ async function resolveTelegramCommandAuth(params: {
     senderUsername,
     groupConfig,
     topicConfig,
-    commandAuthorized,
+    commandAuthorized: commandAuthorizedWithOverrides,
   };
 }
 
