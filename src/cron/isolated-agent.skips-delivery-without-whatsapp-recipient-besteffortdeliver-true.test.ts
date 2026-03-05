@@ -484,8 +484,8 @@ describe("runCronIsolatedAgentTurn", () => {
         });
 
         expect(res.status).toBe("error");
-        expect(res.error).toContain("announce session route");
-        expect(res.error).toContain("route explode");
+        expect(res.error).toContain("cron announce session route resolution failed");
+        expect(res.error ?? "").not.toContain("route explode");
         expect(res.deliveryAttempted).toBe(false);
         expect(runSubagentAnnounceFlow).not.toHaveBeenCalled();
       } finally {

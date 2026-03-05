@@ -92,7 +92,6 @@ async function resolveCronAnnounceSessionKey(params: {
       error: new Error("announce delivery target is missing recipient"),
     };
   }
-  const routeLabel = `${params.delivery.channel}:${to}`;
   try {
     const route = await resolveOutboundSessionRoute({
       cfg: params.cfg,
@@ -123,13 +122,12 @@ async function resolveCronAnnounceSessionKey(params: {
     }
     return {
       ok: false,
-      error: new Error(`no session key resolved for ${routeLabel}`),
+      error: new Error(`no announce session key resolved for channel ${params.delivery.channel}`),
     };
-  } catch (err) {
-    const detail = err instanceof Error && err.message ? err.message : String(err);
+  } catch {
     return {
       ok: false,
-      error: new Error(`failed resolving ${routeLabel}: ${detail}`),
+      error: new Error("failed resolving announce session route"),
     };
   }
 }
@@ -280,7 +278,7 @@ export async function dispatchCronDelivery(
       },
     });
     if (!announceSessionRoute.ok) {
-      const message = `cron announce session route resolution failed: ${announceSessionRoute.error.message}`;
+      const message = "cron announce session route resolution failed";
       if (requiresExternalDelivery) {
         return failDeliveryTarget(message);
       }

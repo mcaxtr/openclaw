@@ -463,6 +463,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       turnSourceTo: "telegram:6812765697",
       turnSourceAccountId: "bot-1",
       turnSourceThreadId: 77,
+      client: { connect: { role: "operator", scopes: ["operator.admin"] } },
       idempotencyKey: "idem-main-turn-source",
       expectBroadcast: false,
     });
@@ -498,6 +499,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       respond,
       sessionKey: "main",
       turnSourceChannel: "telegram",
+      client: { connect: { role: "operator", scopes: ["operator.admin"] } },
       idempotencyKey: "idem-main-turn-source-incomplete",
       expectBroadcast: false,
     });
@@ -650,6 +652,48 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
         MessageThreadId: undefined,
       }),
     );
+  });
+
+  it("chat.send rejects turn-source overrides for non-admin clients", async () => {
+    createTranscriptFixture("openclaw-chat-send-turn-source-non-admin-denied-");
+    mockState.finalText = "ok";
+    mockState.sessionEntry = {
+      deliveryContext: {
+        channel: "telegram",
+        to: "telegram:6812765697",
+        accountId: "default",
+      },
+      lastChannel: "telegram",
+      lastTo: "telegram:6812765697",
+      lastAccountId: "default",
+    };
+    const respond = vi.fn();
+    const context = createChatContext();
+
+    await chatHandlers["chat.send"]({
+      params: {
+        sessionKey: "main",
+        message: "hello",
+        turnSourceChannel: "telegram",
+        turnSourceTo: "telegram:6812765697",
+        idempotencyKey: "idem-turn-source-non-admin-denied",
+      },
+      respond: respond as unknown as Parameters<(typeof chatHandlers)["chat.send"]>[0]["respond"],
+      req: {} as never,
+      client: {
+        connect: { role: "operator", scopes: ["operator.write"] },
+      } as never,
+      isWebchatConnect: () => false,
+      context: context as GatewayRequestContext,
+    });
+
+    const [ok, _payload, error] = respond.mock.calls.at(-1) ?? [];
+    expect(ok).toBe(false);
+    expect((error as { message?: string } | undefined)?.message ?? "").toContain(
+      "operator.admin scope",
+    );
+    expect(mockState.lastDispatchCtx).toBeUndefined();
+    expect((context.broadcast as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
   });
 
   it("chat.send returns INVALID_REQUEST when deliver=true and no external route is available", async () => {

@@ -32,6 +32,7 @@ import {
 } from "../chat-abort.js";
 import { type ChatImageContent, parseMessageWithAttachments } from "../chat-attachments.js";
 import { stripEnvelopeFromMessage, stripEnvelopeFromMessages } from "../chat-sanitize.js";
+import { ADMIN_SCOPE } from "../method-scopes.js";
 import { GATEWAY_CLIENT_CAPS, hasGatewayClientCap } from "../protocol/client-info.js";
 import {
   ErrorCodes,
@@ -829,21 +830,45 @@ export const chatHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    const normalizedTurnSource = normalizeMessageChannel(p.turnSourceChannel);
+    const gatewayScopes = Array.isArray(client?.connect?.scopes) ? client.connect.scopes : [];
+    const allowTurnSourceOverride =
+      client?.connect?.role === "node" || gatewayScopes.includes(ADMIN_SCOPE);
+    const turnSourceOverrideRequested =
+      (typeof p.turnSourceChannel === "string" && p.turnSourceChannel.trim().length > 0) ||
+      (typeof p.turnSourceTo === "string" && p.turnSourceTo.trim().length > 0) ||
+      (typeof p.turnSourceAccountId === "string" && p.turnSourceAccountId.trim().length > 0) ||
+      (p.turnSourceThreadId != null && p.turnSourceThreadId !== "");
+    if (turnSourceOverrideRequested && !allowTurnSourceOverride) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "turn source override requires operator.admin scope",
+        ),
+      );
+      return;
+    }
+
+    const normalizedTurnSource = allowTurnSourceOverride
+      ? normalizeMessageChannel(p.turnSourceChannel)
+      : undefined;
     const turnSourceChannel =
       normalizedTurnSource && isDeliverableMessageChannel(normalizedTurnSource)
         ? normalizedTurnSource
         : undefined;
     const turnSourceTo =
-      typeof p.turnSourceTo === "string" && p.turnSourceTo.trim()
+      allowTurnSourceOverride && typeof p.turnSourceTo === "string" && p.turnSourceTo.trim()
         ? p.turnSourceTo.trim()
         : undefined;
     const turnSourceAccountId =
-      typeof p.turnSourceAccountId === "string" && p.turnSourceAccountId.trim()
+      allowTurnSourceOverride &&
+      typeof p.turnSourceAccountId === "string" &&
+      p.turnSourceAccountId.trim()
         ? p.turnSourceAccountId.trim()
         : undefined;
     const turnSourceThreadId =
-      p.turnSourceThreadId != null && p.turnSourceThreadId !== ""
+      allowTurnSourceOverride && p.turnSourceThreadId != null && p.turnSourceThreadId !== ""
         ? p.turnSourceThreadId
         : undefined;
     const deliveryIntent: DeliveryIntent =
