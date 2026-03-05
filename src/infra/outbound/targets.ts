@@ -5,7 +5,11 @@ import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import type { AgentDefaultsConfig } from "../../config/types.agent-defaults.js";
 import { parseDiscordTarget } from "../../discord/targets.js";
-import { normalizeAccountId } from "../../routing/session-key.js";
+import {
+  normalizeAccountId,
+  normalizeMainKey,
+  parseAgentSessionKey,
+} from "../../routing/session-key.js";
 import { parseSlackTarget } from "../../slack/targets.js";
 import { parseTelegramTarget, resolveTelegramTargetChatType } from "../../telegram/targets.js";
 import { deliveryContextFromSession } from "../../utils/delivery-context.js";
@@ -61,6 +65,56 @@ export type SessionDeliveryTarget = {
   lastThreadId?: string | number;
 };
 
+export type DeliveryIntent = "internal_only" | "external_preferred" | "external_required";
+
+export type SessionRouteDecisionReason =
+  | "ok"
+  | "internal_only"
+  | "main_alias_blocked"
+  | "missing_turn_source_to"
+  | "missing_to";
+
+export type SessionRouteDecision =
+  | {
+      status: "resolved";
+      reason: "ok";
+      target: {
+        channel: DeliverableMessageChannel;
+        to: string;
+        accountId?: string;
+        threadId?: string | number;
+      };
+    }
+  | {
+      status: "blocked" | "missing";
+      reason: Exclude<SessionRouteDecisionReason, "ok">;
+      target: undefined;
+    };
+
+function isMainSessionAlias(params: {
+  sessionKey?: string;
+  mainKey?: string | undefined;
+}): boolean {
+  const isMainRest = (value: string, mainKey: string): boolean =>
+    value === mainKey ||
+    value.startsWith(`${mainKey}:thread:`) ||
+    value.startsWith(`${mainKey}:topic:`);
+
+  const raw = params.sessionKey?.trim().toLowerCase();
+  if (!raw) {
+    return false;
+  }
+  const configuredMainKey = normalizeMainKey(params.mainKey);
+  if (isMainRest(raw, "main") || isMainRest(raw, configuredMainKey)) {
+    return true;
+  }
+  const parsed = parseAgentSessionKey(raw);
+  if (!parsed) {
+    return false;
+  }
+  return isMainRest(parsed.rest, "main") || isMainRest(parsed.rest, configuredMainKey);
+}
+
 export function resolveSessionDeliveryTarget(params: {
   entry?: SessionEntry;
   requestedChannel?: GatewayMessageChannel | "last";
@@ -88,18 +142,48 @@ export function resolveSessionDeliveryTarget(params: {
   turnSourceAccountId?: string;
   /** Turn-source `threadId` — paired with `turnSourceChannel`. */
   turnSourceThreadId?: string | number;
+  /**
+   * Optional session key context for main-alias detection.
+   * Used with `failClosedMainSessionLastRoute` to avoid inheriting mutable
+   * external `last*` route metadata for shared main sessions.
+   */
+  sessionKey?: string;
+  /** Optional session.mainKey value for alias resolution. */
+  mainKey?: string;
+  /**
+   * When true, session keys resolving to main aliases (`main`, configured mainKey,
+   * and their thread/topic variants) do not inherit session `last*` route fields.
+   */
+  failClosedMainSessionLastRoute?: boolean;
 }): SessionDeliveryTarget {
   const context = deliveryContextFromSession(params.entry);
+  const blockSessionLastRoute =
+    params.failClosedMainSessionLastRoute === true &&
+    isMainSessionAlias({ sessionKey: params.sessionKey, mainKey: params.mainKey });
   const sessionLastChannel =
-    context?.channel && isDeliverableMessageChannel(context.channel) ? context.channel : undefined;
+    !blockSessionLastRoute && context?.channel && isDeliverableMessageChannel(context.channel)
+      ? context.channel
+      : undefined;
 
   // When a turn-source channel is provided, use only turn-scoped metadata.
   // Falling back to mutable session fields would re-introduce routing races.
   const hasTurnSourceChannel = params.turnSourceChannel != null;
   const lastChannel = hasTurnSourceChannel ? params.turnSourceChannel : sessionLastChannel;
-  const lastTo = hasTurnSourceChannel ? params.turnSourceTo : context?.to;
-  const lastAccountId = hasTurnSourceChannel ? params.turnSourceAccountId : context?.accountId;
-  const lastThreadId = hasTurnSourceChannel ? params.turnSourceThreadId : context?.threadId;
+  const lastTo = hasTurnSourceChannel
+    ? params.turnSourceTo
+    : blockSessionLastRoute
+      ? undefined
+      : context?.to;
+  const lastAccountId = hasTurnSourceChannel
+    ? params.turnSourceAccountId
+    : blockSessionLastRoute
+      ? undefined
+      : context?.accountId;
+  const lastThreadId = hasTurnSourceChannel
+    ? params.turnSourceThreadId
+    : blockSessionLastRoute
+      ? undefined
+      : context?.threadId;
 
   const rawRequested = params.requestedChannel ?? "last";
   const requested = rawRequested === "last" ? "last" : normalizeMessageChannel(rawRequested);
@@ -163,6 +247,83 @@ export function resolveSessionDeliveryTarget(params: {
     lastTo,
     lastAccountId,
     lastThreadId,
+  };
+}
+
+export function resolveSessionRouteDecision(params: {
+  intent: DeliveryIntent;
+  entry?: SessionEntry;
+  requestedChannel?: GatewayMessageChannel | "last";
+  explicitTo?: string;
+  explicitThreadId?: string | number;
+  fallbackChannel?: DeliverableMessageChannel;
+  allowMismatchedLastTo?: boolean;
+  mode?: ChannelOutboundTargetMode;
+  turnSourceChannel?: DeliverableMessageChannel;
+  turnSourceTo?: string;
+  turnSourceAccountId?: string;
+  turnSourceThreadId?: string | number;
+  sessionKey?: string;
+  mainKey?: string;
+  failClosedMainSessionLastRoute?: boolean;
+}): SessionRouteDecision {
+  if (params.intent === "internal_only") {
+    return { status: "blocked", reason: "internal_only", target: undefined };
+  }
+
+  const resolved = resolveSessionDeliveryTarget({
+    entry: params.entry,
+    requestedChannel: params.requestedChannel,
+    explicitTo: params.explicitTo,
+    explicitThreadId: params.explicitThreadId,
+    fallbackChannel: params.fallbackChannel,
+    allowMismatchedLastTo: params.allowMismatchedLastTo,
+    mode: params.mode,
+    turnSourceChannel: params.turnSourceChannel,
+    turnSourceTo: params.turnSourceTo,
+    turnSourceAccountId: params.turnSourceAccountId,
+    turnSourceThreadId: params.turnSourceThreadId,
+    sessionKey: params.sessionKey,
+    mainKey: params.mainKey,
+    failClosedMainSessionLastRoute: params.failClosedMainSessionLastRoute,
+  });
+
+  if (resolved.channel && resolved.to) {
+    return {
+      status: "resolved",
+      reason: "ok",
+      target: {
+        channel: resolved.channel,
+        to: resolved.to,
+        accountId: resolved.accountId,
+        threadId: resolved.threadId,
+      },
+    };
+  }
+
+  if (params.turnSourceChannel && !params.turnSourceTo) {
+    return {
+      status: "missing",
+      reason: "missing_turn_source_to",
+      target: undefined,
+    };
+  }
+
+  const failClosedMainAlias =
+    params.failClosedMainSessionLastRoute === true &&
+    isMainSessionAlias({ sessionKey: params.sessionKey, mainKey: params.mainKey });
+  if (failClosedMainAlias) {
+    return {
+      status: "blocked",
+      reason: "main_alias_blocked",
+      target: undefined,
+    };
+  }
+
+  return {
+    status: "missing",
+    reason: "missing_to",
+    target: undefined,
   };
 }
 

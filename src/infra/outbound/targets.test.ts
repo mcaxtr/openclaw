@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
+  resolveSessionRouteDecision,
   resolveHeartbeatDeliveryTarget,
   resolveOutboundTarget,
   resolveSessionDeliveryTarget,
@@ -12,6 +13,215 @@ import {
 } from "./targets.shared-test.js";
 
 runResolveOutboundTargetCoreTests();
+
+describe("resolveSessionDeliveryTarget main-session fail-closed mode", () => {
+  const sessionEntry = {
+    sessionId: "sess-main",
+    updatedAt: 1,
+    deliveryContext: {
+      channel: "telegram",
+      to: "telegram:123",
+      accountId: "default",
+      threadId: 11,
+    },
+    lastChannel: "telegram",
+    lastTo: "telegram:123",
+    lastAccountId: "default",
+    lastThreadId: 11,
+  } as const;
+
+  it("fails closed for main-session aliases when enabled", () => {
+    const resolved = resolveSessionDeliveryTarget({
+      entry: sessionEntry,
+      requestedChannel: "last",
+      sessionKey: "main",
+      failClosedMainSessionLastRoute: true,
+    });
+    expect(resolved).toEqual(
+      expect.objectContaining({
+        channel: undefined,
+        to: undefined,
+        accountId: undefined,
+        threadId: undefined,
+        lastChannel: undefined,
+        lastTo: undefined,
+        lastAccountId: undefined,
+        lastThreadId: undefined,
+      }),
+    );
+  });
+
+  it("keeps default main-session route inheritance when fail-closed mode is disabled", () => {
+    const resolved = resolveSessionDeliveryTarget({
+      entry: sessionEntry,
+      requestedChannel: "last",
+      sessionKey: "main",
+    });
+    expect(resolved).toEqual(
+      expect.objectContaining({
+        channel: "telegram",
+        to: "telegram:123",
+        accountId: "default",
+        threadId: 11,
+      }),
+    );
+  });
+
+  it("inherits route metadata for non-main channel-scoped sessions", () => {
+    const resolved = resolveSessionDeliveryTarget({
+      entry: sessionEntry,
+      requestedChannel: "last",
+      sessionKey: "agent:main:telegram:direct:123",
+      failClosedMainSessionLastRoute: true,
+    });
+    expect(resolved).toEqual(
+      expect.objectContaining({
+        channel: "telegram",
+        to: "telegram:123",
+        accountId: "default",
+        threadId: 11,
+      }),
+    );
+  });
+
+  it("treats configured mainKey aliases as main sessions", () => {
+    const resolved = resolveSessionDeliveryTarget({
+      entry: sessionEntry,
+      requestedChannel: "last",
+      sessionKey: "agent:main:work",
+      mainKey: "work",
+      failClosedMainSessionLastRoute: true,
+    });
+    expect(resolved.channel).toBeUndefined();
+    expect(resolved.to).toBeUndefined();
+  });
+
+  it("treats threaded main sessions as main aliases", () => {
+    const resolved = resolveSessionDeliveryTarget({
+      entry: sessionEntry,
+      requestedChannel: "last",
+      sessionKey: "agent:main:main:thread:2026-03-04",
+      failClosedMainSessionLastRoute: true,
+    });
+    expect(resolved.channel).toBeUndefined();
+    expect(resolved.to).toBeUndefined();
+  });
+
+  it("inherits route metadata for threaded channel-scoped sessions", () => {
+    const resolved = resolveSessionDeliveryTarget({
+      entry: sessionEntry,
+      requestedChannel: "last",
+      sessionKey: "agent:main:telegram:direct:123:thread:2026-03-04",
+      failClosedMainSessionLastRoute: true,
+    });
+    expect(resolved.channel).toBe("telegram");
+    expect(resolved.to).toBe("telegram:123");
+  });
+
+  it("uses turn-source metadata over fail-closed main-session defaults", () => {
+    const resolved = resolveSessionDeliveryTarget({
+      entry: sessionEntry,
+      requestedChannel: "last",
+      sessionKey: "main",
+      failClosedMainSessionLastRoute: true,
+      turnSourceChannel: "discord",
+      turnSourceTo: "channel:C123",
+      turnSourceAccountId: "bot-1",
+      turnSourceThreadId: "thread-9",
+    });
+    expect(resolved).toEqual(
+      expect.objectContaining({
+        channel: "discord",
+        to: "channel:C123",
+        accountId: "bot-1",
+        threadId: "thread-9",
+      }),
+    );
+  });
+});
+
+describe("resolveSessionRouteDecision", () => {
+  const sessionEntry = {
+    sessionId: "sess-main",
+    updatedAt: 1,
+    deliveryContext: {
+      channel: "telegram",
+      to: "telegram:123",
+      accountId: "default",
+      threadId: 11,
+    },
+    lastChannel: "telegram",
+    lastTo: "telegram:123",
+    lastAccountId: "default",
+    lastThreadId: 11,
+  } as const;
+
+  it("returns blocked for fail-closed main alias with no explicit origin", () => {
+    const decision = resolveSessionRouteDecision({
+      intent: "external_preferred",
+      entry: sessionEntry,
+      requestedChannel: "last",
+      sessionKey: "main",
+      failClosedMainSessionLastRoute: true,
+    });
+    expect(decision).toEqual({
+      status: "blocked",
+      reason: "main_alias_blocked",
+      target: undefined,
+    });
+  });
+
+  it("returns missing when turn-source channel is provided without turn-source recipient", () => {
+    const decision = resolveSessionRouteDecision({
+      intent: "external_preferred",
+      entry: sessionEntry,
+      requestedChannel: "last",
+      sessionKey: "main",
+      failClosedMainSessionLastRoute: true,
+      turnSourceChannel: "telegram",
+    });
+    expect(decision).toEqual({
+      status: "missing",
+      reason: "missing_turn_source_to",
+      target: undefined,
+    });
+  });
+
+  it("returns resolved for channel-scoped session inheritance", () => {
+    const decision = resolveSessionRouteDecision({
+      intent: "external_preferred",
+      entry: sessionEntry,
+      requestedChannel: "last",
+      sessionKey: "agent:main:telegram:direct:123",
+      failClosedMainSessionLastRoute: true,
+    });
+    expect(decision).toEqual({
+      status: "resolved",
+      reason: "ok",
+      target: expect.objectContaining({
+        channel: "telegram",
+        to: "telegram:123",
+        accountId: "default",
+        threadId: 11,
+      }),
+    });
+  });
+
+  it("returns blocked for internal-only intent even when route is available", () => {
+    const decision = resolveSessionRouteDecision({
+      intent: "internal_only",
+      entry: sessionEntry,
+      requestedChannel: "last",
+      sessionKey: "agent:main:telegram:direct:123",
+      failClosedMainSessionLastRoute: true,
+    });
+    expect(decision).toEqual({
+      status: "blocked",
+      reason: "internal_only",
+      target: undefined,
+    });
+  });
+});
 
 describe("resolveOutboundTarget defaultTo config fallback", () => {
   installResolveOutboundTargetPluginRegistryHooks();
