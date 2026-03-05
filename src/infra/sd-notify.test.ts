@@ -342,4 +342,25 @@ describe("startWatchdogHeartbeat", () => {
     // No additional calls after cleanup
     expect(execFileMock).toHaveBeenCalledOnce();
   });
+
+  it("resets watchdog warning state across heartbeat restarts", () => {
+    process.env.NOTIFY_SOCKET = "/run/user/1000/systemd/notify";
+    process.env.WATCHDOG_USEC = "90000000";
+    execFileMock.mockImplementation(
+      (_cmd: string, _args: string[], _opts: object, cb: (err: Error | null) => void) => {
+        cb(new Error("spawn failed"));
+      },
+    );
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    const stop1 = startWatchdogHeartbeat();
+    expect(stderrSpy).toHaveBeenCalledTimes(1);
+    stop1!();
+
+    const stop2 = startWatchdogHeartbeat();
+    expect(stderrSpy).toHaveBeenCalledTimes(2);
+    stop2!();
+
+    stderrSpy.mockRestore();
+  });
 });

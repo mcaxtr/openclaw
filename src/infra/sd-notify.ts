@@ -139,6 +139,10 @@ export function startWatchdogHeartbeat(): (() => void) | undefined {
   if (!process.env.NOTIFY_SOCKET) {
     return undefined;
   }
+  // New heartbeat lifecycle: clear prior warning state so a previous run's
+  // failure does not suppress warnings after an in-process restart.
+  watchdogWarnedOnce = false;
+  watchdogInFlight = false;
   const usecRaw = process.env.WATCHDOG_USEC;
   if (!usecRaw) {
     return undefined;
@@ -154,7 +158,11 @@ export function startWatchdogHeartbeat(): (() => void) | undefined {
   const timer = setInterval(() => sdNotifyWatchdog(), intervalMs);
   timer.unref();
   sdNotifyWatchdog();
-  return () => clearInterval(timer);
+  return () => {
+    clearInterval(timer);
+    watchdogInFlight = false;
+    watchdogWarnedOnce = false;
+  };
 }
 
 /** @internal Reset notify command resolution cache. Exported for testing only. */
