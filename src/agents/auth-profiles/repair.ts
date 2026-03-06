@@ -1,6 +1,7 @@
 import type { OpenClawConfig } from "../../config/config.js";
 import type { AuthProfileConfig } from "../../config/types.js";
 import { findNormalizedProviderKey, normalizeProviderId } from "../model-selection.js";
+import { resolveOpenAICodexCompatibleProfileId } from "./openai-codex-profile-id.js";
 import { dedupeProfileIds, listProfilesForProvider } from "./profiles.js";
 import type { AuthProfileIdRepairResult, AuthProfileStore } from "./types.js";
 
@@ -76,6 +77,17 @@ export function suggestOAuthProfileIdForLegacyDefault(params: {
   const emailLike = nonLegacy.filter((id) => isEmailLike(getProfileSuffix(id)));
   if (emailLike.length === 1) {
     return emailLike[0] ?? null;
+  }
+
+  if (providerKey === "openai-codex") {
+    const compatible = resolveOpenAICodexCompatibleProfileId({
+      cfg: params.cfg,
+      store: params.store,
+      profileId: params.legacyProfileId,
+    });
+    if (compatible && compatible !== params.legacyProfileId) {
+      return compatible;
+    }
   }
 
   return null;

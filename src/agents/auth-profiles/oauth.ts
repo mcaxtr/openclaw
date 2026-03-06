@@ -14,6 +14,7 @@ import { normalizeProviderId } from "../model-selection.js";
 import { AUTH_STORE_LOCK_OPTIONS, log } from "./constants.js";
 import { resolveTokenExpiryState } from "./credential-state.js";
 import { formatAuthDoctorHint } from "./doctor.js";
+import { resolveOpenAICodexCompatibleProfileId } from "./openai-codex-profile-id.js";
 import { ensureAuthStoreFile, resolveAuthStorePath } from "./paths.js";
 import { suggestOAuthProfileIdForLegacyDefault } from "./repair.js";
 import { ensureAuthProfileStore, saveAuthProfileStore } from "./store.js";
@@ -310,14 +311,22 @@ export async function resolveApiKeyForProfile(
   params: ResolveApiKeyForProfileParams,
 ): Promise<{ apiKey: string; provider: string; email?: string } | null> {
   const { cfg, store, profileId } = params;
-  const cred = store.profiles[profileId];
+  const requestedProfileId = profileId;
+  const resolvedProfileId = store.profiles[requestedProfileId]
+    ? requestedProfileId
+    : (resolveOpenAICodexCompatibleProfileId({
+        cfg,
+        store,
+        profileId: requestedProfileId,
+      }) ?? requestedProfileId);
+  const cred = store.profiles[resolvedProfileId];
   if (!cred) {
     return null;
   }
   if (
     !isProfileConfigCompatible({
       cfg,
-      profileId,
+      profileId: resolvedProfileId,
       provider: cred.provider,
       mode: cred.type,
       // Compatibility: treat "oauth" config as compatible with stored token profiles.
@@ -333,7 +342,7 @@ export async function resolveApiKeyForProfile(
 
   if (cred.type === "api_key") {
     const key = await resolveProfileSecretString({
-      profileId,
+      profileId: resolvedProfileId,
       provider: cred.provider,
       value: cred.key,
       valueRef: cred.keyRef,
@@ -354,7 +363,7 @@ export async function resolveApiKeyForProfile(
       return null;
     }
     const token = await resolveProfileSecretString({
-      profileId,
+      profileId: resolvedProfileId,
       provider: cred.provider,
       value: cred.token,
       valueRef: cred.tokenRef,
@@ -373,7 +382,7 @@ export async function resolveApiKeyForProfile(
   const oauthCred =
     adoptNewerMainOAuthCredential({
       store,
-      profileId,
+      profileId: resolvedProfileId,
       agentDir: params.agentDir,
       cred,
     }) ?? cred;
@@ -388,7 +397,7 @@ export async function resolveApiKeyForProfile(
 
   try {
     const result = await refreshOAuthTokenWithLock({
-      profileId,
+      profileId: resolvedProfileId,
       agentDir: params.agentDir,
     });
     if (!result) {
@@ -401,7 +410,7 @@ export async function resolveApiKeyForProfile(
     });
   } catch (error) {
     const refreshedStore = ensureAuthProfileStore(params.agentDir);
-    const refreshed = refreshedStore.profiles[profileId];
+    const refreshed = refreshedStore.profiles[resolvedProfileId];
     if (refreshed?.type === "oauth" && Date.now() < refreshed.expires) {
       return buildOAuthProfileResult({
         provider: refreshed.provider,
@@ -413,9 +422,9 @@ export async function resolveApiKeyForProfile(
       cfg,
       store: refreshedStore,
       provider: cred.provider,
-      legacyProfileId: profileId,
+      legacyProfileId: resolvedProfileId,
     });
-    if (fallbackProfileId && fallbackProfileId !== profileId) {
+    if (fallbackProfileId && fallbackProfileId !== resolvedProfileId) {
       try {
         const fallbackResolved = await tryResolveOAuthProfile({
           cfg,
@@ -435,13 +444,13 @@ export async function resolveApiKeyForProfile(
     if (params.agentDir) {
       try {
         const mainStore = ensureAuthProfileStore(undefined); // main agent (no agentDir)
-        const mainCred = mainStore.profiles[profileId];
+        const mainCred = mainStore.profiles[resolvedProfileId];
         if (mainCred?.type === "oauth" && Date.now() < mainCred.expires) {
           // Main agent has fresh credentials - copy them to this agent and use them
-          refreshedStore.profiles[profileId] = { ...mainCred };
+          refreshedStore.profiles[resolvedProfileId] = { ...mainCred };
           saveAuthProfileStore(refreshedStore, params.agentDir);
           log.info("inherited fresh OAuth credentials from main agent", {
-            profileId,
+            profileId: resolvedProfileId,
             agentDir: params.agentDir,
             expires: new Date(mainCred.expires).toISOString(),
           });
@@ -479,7 +488,7 @@ export async function resolveApiKeyForProfile(
       cfg,
       store: refreshedStore,
       provider: cred.provider,
-      profileId,
+      profileId: resolvedProfileId,
     });
     throw new Error(
       `OAuth token refresh failed for ${cred.provider}: ${message}. ` +

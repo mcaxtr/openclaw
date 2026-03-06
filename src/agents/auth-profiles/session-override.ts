@@ -6,6 +6,7 @@ import {
   resolveAuthProfileOrder,
 } from "../auth-profiles.js";
 import { normalizeProviderId } from "../model-selection.js";
+import { resolveOpenAICodexCompatibleProfileId } from "./openai-codex-profile-id.js";
 
 function isProfileForProvider(params: {
   provider: string;
@@ -67,8 +68,28 @@ export async function resolveSessionAuthProfileOverride(params: {
   let current = sessionEntry.authProfileOverride?.trim();
 
   if (current && !store.profiles[current]) {
-    await clearSessionAuthProfileOverride({ sessionEntry, sessionStore, sessionKey, storePath });
-    current = undefined;
+    const compatible =
+      normalizeProviderId(provider) === "openai-codex"
+        ? resolveOpenAICodexCompatibleProfileId({
+            cfg,
+            store,
+            profileId: current,
+          })
+        : null;
+    if (compatible && compatible !== current && store.profiles[compatible]) {
+      current = compatible;
+      sessionEntry.authProfileOverride = compatible;
+      sessionEntry.updatedAt = Date.now();
+      sessionStore[sessionKey] = sessionEntry;
+      if (storePath) {
+        await updateSessionStore(storePath, (store) => {
+          store[sessionKey] = sessionEntry;
+        });
+      }
+    } else {
+      await clearSessionAuthProfileOverride({ sessionEntry, sessionStore, sessionKey, storePath });
+      current = undefined;
+    }
   }
 
   if (current && !isProfileForProvider({ provider, profileId: current, store })) {

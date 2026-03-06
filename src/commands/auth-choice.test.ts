@@ -55,6 +55,22 @@ type StoredAuthProfile = {
   metadata?: Record<string, string>;
 };
 
+function makeJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" }), "utf8").toString(
+    "base64url",
+  );
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `${header}.${body}.sig`;
+}
+
+function expectedOpenAICodexProfileId(params: {
+  accountId: string;
+  iss: string;
+  sub: string;
+}): string {
+  return `openai-codex:${params.accountId}:${Buffer.from(params.iss, "utf8").toString("base64url")}:${Buffer.from(params.sub, "utf8").toString("base64url")}`;
+}
+
 describe("applyAuthChoice", () => {
   const lifecycle = createAuthTestLifecycle([
     "OPENCLAW_STATE_DIR",
@@ -154,14 +170,25 @@ describe("applyAuthChoice", () => {
     ).resolves.toEqual({ config: {} });
   });
 
-  it("stores openai-codex OAuth with email profile id", async () => {
+  it("stores openai-codex OAuth with canonical oidc profile id", async () => {
     await setupTempState();
+
+    const canonicalProfileId = expectedOpenAICodexProfileId({
+      accountId: "acct-choice",
+      iss: "https://auth.openai.com",
+      sub: "sub-choice",
+    });
 
     loginOpenAICodexOAuth.mockResolvedValueOnce({
       email: "user@example.com",
       refresh: "refresh-token",
-      access: "access-token",
+      access: makeJwt({
+        iss: "https://auth.openai.com",
+        sub: "sub-choice",
+        "https://api.openai.com/auth": { chatgpt_account_id: "acct-choice" },
+      }),
       expires: Date.now() + 60_000,
+      accountId: "acct-choice",
     });
 
     const prompter = createPrompter({});
@@ -175,17 +202,17 @@ describe("applyAuthChoice", () => {
       setDefaultModel: false,
     });
 
-    expect(result.config.auth?.profiles?.["openai-codex:user@example.com"]).toMatchObject({
+    expect(result.config.auth?.profiles?.[canonicalProfileId]).toMatchObject({
       provider: "openai-codex",
       mode: "oauth",
     });
     expect(result.config.auth?.profiles?.["openai-codex:default"]).toBeUndefined();
-    expect(await readAuthProfile("openai-codex:user@example.com")).toMatchObject({
+    expect(await readAuthProfile(canonicalProfileId)).toMatchObject({
       type: "oauth",
       provider: "openai-codex",
       refresh: "refresh-token",
-      access: "access-token",
       email: "user@example.com",
+      accountId: "acct-choice",
     });
   });
 

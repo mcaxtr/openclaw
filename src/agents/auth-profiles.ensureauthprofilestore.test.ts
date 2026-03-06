@@ -5,6 +5,22 @@ import { describe, expect, it, vi } from "vitest";
 import { ensureAuthProfileStore } from "./auth-profiles.js";
 import { AUTH_STORE_VERSION, log } from "./auth-profiles/constants.js";
 
+function makeJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" }), "utf8").toString(
+    "base64url",
+  );
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `${header}.${body}.sig`;
+}
+
+function expectedOpenAICodexProfileId(params: {
+  accountId: string;
+  iss: string;
+  sub: string;
+}): string {
+  return `openai-codex:${params.accountId}:${Buffer.from(params.iss, "utf8").toString("base64url")}:${Buffer.from(params.sub, "utf8").toString("base64url")}`;
+}
+
 describe("ensureAuthProfileStore", () => {
   it("migrates legacy auth.json and deletes it (PR #368)", () => {
     const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-auth-profiles-"));
@@ -42,6 +58,67 @@ describe("ensureAuthProfileStore", () => {
       const store2 = ensureAuthProfileStore(agentDir);
       expect(store2.profiles["anthropic:default"]).toBeDefined();
       expect(fs.existsSync(legacyPath)).toBe(false);
+    } finally {
+      fs.rmSync(agentDir, { recursive: true, force: true });
+    }
+  });
+
+  it("migrates legacy openai-codex profile ids to canonical oidc ids", () => {
+    const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-auth-openai-migrate-"));
+    try {
+      const legacyProfileId = "openai-codex:user@example.com";
+      const canonicalProfileId = expectedOpenAICodexProfileId({
+        accountId: "acct-openai",
+        iss: "https://auth.openai.com",
+        sub: "sub-openai",
+      });
+      const storeData = {
+        version: AUTH_STORE_VERSION,
+        profiles: {
+          [legacyProfileId]: {
+            type: "oauth",
+            provider: "openai-codex",
+            access: makeJwt({
+              iss: "https://auth.openai.com",
+              sub: "sub-openai",
+              "https://api.openai.com/auth": { chatgpt_account_id: "acct-openai" },
+            }),
+            refresh: "refresh-openai",
+            expires: Date.now() + 60_000,
+            email: "user@example.com",
+            accountId: "acct-openai",
+          },
+        },
+        order: {
+          "openai-codex": [legacyProfileId],
+        },
+        lastGood: {
+          "openai-codex": legacyProfileId,
+        },
+        usageStats: {
+          [legacyProfileId]: {
+            lastUsed: 123,
+            errorCount: 2,
+          },
+        },
+      };
+      fs.writeFileSync(
+        path.join(agentDir, "auth-profiles.json"),
+        `${JSON.stringify(storeData, null, 2)}\n`,
+        "utf8",
+      );
+
+      const store = ensureAuthProfileStore(agentDir);
+      expect(store.profiles[legacyProfileId]).toBeUndefined();
+      expect(store.profiles[canonicalProfileId]).toMatchObject({
+        provider: "openai-codex",
+        type: "oauth",
+        accountId: "acct-openai",
+      });
+      expect(store.order?.["openai-codex"]).toEqual([canonicalProfileId]);
+      expect(store.lastGood?.["openai-codex"]).toBe(canonicalProfileId);
+      expect(store.usageStats?.[legacyProfileId]).toBeUndefined();
+      expect(store.usageStats?.[canonicalProfileId]?.lastUsed).toBe(123);
     } finally {
       fs.rmSync(agentDir, { recursive: true, force: true });
     }

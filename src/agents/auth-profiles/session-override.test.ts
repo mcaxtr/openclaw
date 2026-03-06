@@ -20,6 +20,22 @@ async function writeAuthStore(agentDir: string) {
   await fs.writeFile(authPath, JSON.stringify(payload), "utf-8");
 }
 
+function makeJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" }), "utf8").toString(
+    "base64url",
+  );
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `${header}.${body}.sig`;
+}
+
+function expectedOpenAICodexProfileId(params: {
+  accountId: string;
+  iss: string;
+  sub: string;
+}): string {
+  return `openai-codex:${params.accountId}:${Buffer.from(params.iss, "utf8").toString("base64url")}:${Buffer.from(params.sub, "utf8").toString("base64url")}`;
+}
+
 describe("resolveSessionAuthProfileOverride", () => {
   it("keeps user override when provider alias differs", async () => {
     await withStateDirEnv("openclaw-auth-", async ({ stateDir }) => {
@@ -48,6 +64,77 @@ describe("resolveSessionAuthProfileOverride", () => {
 
       expect(resolved).toBe("zai:work");
       expect(sessionEntry.authProfileOverride).toBe("zai:work");
+    });
+  });
+
+  it("rewrites legacy openai-codex session override to canonical oidc profile id", async () => {
+    await withStateDirEnv("openclaw-auth-openai-", async ({ stateDir }) => {
+      const agentDir = path.join(stateDir, "agent");
+      await fs.mkdir(agentDir, { recursive: true });
+
+      const canonicalProfileId = expectedOpenAICodexProfileId({
+        accountId: "acct-session",
+        iss: "https://auth.openai.com",
+        sub: "sub-session",
+      });
+      const authPath = path.join(agentDir, "auth-profiles.json");
+      await fs.writeFile(
+        authPath,
+        JSON.stringify({
+          version: 1,
+          profiles: {
+            [canonicalProfileId]: {
+              type: "oauth",
+              provider: "openai-codex",
+              access: makeJwt({
+                iss: "https://auth.openai.com",
+                sub: "sub-session",
+                "https://api.openai.com/auth": { chatgpt_account_id: "acct-session" },
+              }),
+              refresh: "refresh-session",
+              expires: Date.now() + 60_000,
+              email: "user@example.com",
+              accountId: "acct-session",
+            },
+          },
+          order: { "openai-codex": [canonicalProfileId] },
+        }),
+        "utf-8",
+      );
+
+      const sessionEntry: SessionEntry = {
+        sessionId: "s-openai",
+        updatedAt: Date.now(),
+        authProfileOverride: "openai-codex:user@example.com",
+        authProfileOverrideSource: "user",
+      };
+      const sessionStore = { "agent:main:main": sessionEntry };
+
+      const resolved = await resolveSessionAuthProfileOverride({
+        cfg: {
+          auth: {
+            profiles: {
+              [canonicalProfileId]: {
+                provider: "openai-codex",
+                mode: "oauth",
+                email: "user@example.com",
+              },
+            },
+            order: { "openai-codex": [canonicalProfileId] },
+          },
+        } as OpenClawConfig,
+        provider: "openai-codex",
+        agentDir,
+        sessionEntry,
+        sessionStore,
+        sessionKey: "agent:main:main",
+        storePath: undefined,
+        isNewSession: false,
+      });
+
+      expect(resolved).toBe(canonicalProfileId);
+      expect(sessionEntry.authProfileOverride).toBe(canonicalProfileId);
+      expect(sessionEntry.authProfileOverrideSource).toBe("user");
     });
   });
 });
