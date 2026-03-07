@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { withStateDirEnv } from "../../test-helpers/state-dir-env.js";
+import { expectedOpenAICodexProfileId, makeJwt } from "../../test-utils/openai-codex-profile-id.js";
 import { resolveSessionAuthProfileOverride } from "./session-override.js";
 
 async function writeAuthStore(agentDir: string) {
@@ -18,22 +19,6 @@ async function writeAuthStore(agentDir: string) {
     },
   };
   await fs.writeFile(authPath, JSON.stringify(payload), "utf-8");
-}
-
-function makeJwt(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" }), "utf8").toString(
-    "base64url",
-  );
-  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  return `${header}.${body}.sig`;
-}
-
-function expectedOpenAICodexProfileId(params: {
-  accountId: string;
-  iss: string;
-  sub: string;
-}): string {
-  return `openai-codex:${params.accountId}:${Buffer.from(params.iss, "utf8").toString("base64url")}:${Buffer.from(params.sub, "utf8").toString("base64url")}`;
 }
 
 describe("resolveSessionAuthProfileOverride", () => {

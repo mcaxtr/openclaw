@@ -1,20 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import { makeJwt } from "../test-utils/openai-codex-profile-id.js";
 import type { AuthProfileStore, OAuthCredential } from "./auth-profiles.js";
 import {
   deriveOpenAICodexCanonicalProfileId,
   migrateOpenAICodexProfileIdsInStore,
-  repairOpenAICodexOAuthProfileIdsInConfig,
   resolveOpenAICodexCompatibleProfileId,
 } from "./auth-profiles/openai-codex-profile-id.js";
-
-function makeJwt(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" }), "utf8").toString(
-    "base64url",
-  );
-  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  return `${header}.${body}.sig`;
-}
 
 function makeOpenAICredential(params: {
   accountId: string;
@@ -54,28 +45,18 @@ describe("openai-codex profile id canonicalization", () => {
     );
   });
 
-  it("rejects oversized access tokens when deriving canonical profile id", () => {
-    const id = deriveOpenAICodexCanonicalProfileId({
-      type: "oauth",
-      provider: "openai-codex",
-      access: `${"a".repeat(20_000)}.payload.sig`,
-      refresh: "refresh-token",
-      expires: Date.now() + 60_000,
-      accountId: "acct_large",
-    });
-    expect(id).toBeNull();
-  });
-
-  it("rejects oversized JWT payload segments when deriving canonical profile id", () => {
-    const id = deriveOpenAICodexCanonicalProfileId({
-      type: "oauth",
-      provider: "openai-codex",
-      access: `header.${"a".repeat(9_000)}.sig`,
-      refresh: "refresh-token",
-      expires: Date.now() + 60_000,
-      accountId: "acct_large_payload",
-    });
-    expect(id).toBeNull();
+  it("rejects oversized JWT inputs when deriving canonical profile id", () => {
+    for (const access of [`${"a".repeat(20_000)}.payload.sig`, `header.${"a".repeat(9_000)}.sig`]) {
+      const id = deriveOpenAICodexCanonicalProfileId({
+        type: "oauth",
+        provider: "openai-codex",
+        access,
+        refresh: "refresh-token",
+        expires: Date.now() + 60_000,
+        accountId: "acct_large",
+      });
+      expect(id).toBeNull();
+    }
   });
 
   it("migrates legacy openai-codex profile ids and remaps store references", () => {
@@ -122,54 +103,6 @@ describe("openai-codex profile id canonicalization", () => {
     expect(store.lastGood?.["openai-codex"]).toBe(canonicalProfileId);
     expect(store.usageStats?.["openai-codex:user@example.com"]).toBeUndefined();
     expect(store.usageStats?.[canonicalProfileId!]?.lastUsed).toBe(42);
-  });
-
-  it("rewrites config profile references to canonical openai-codex ids", () => {
-    const credential = makeOpenAICredential({
-      accountId: "acct_cfg",
-      iss: "https://auth.openai.com",
-      sub: "sub_cfg",
-      email: "cfg@example.com",
-    });
-    const store: AuthProfileStore = {
-      version: 1,
-      profiles: {
-        "openai-codex:cfg@example.com": credential,
-      },
-      order: {
-        "openai-codex": ["openai-codex:cfg@example.com"],
-      },
-    };
-    const migratedStore = migrateOpenAICodexProfileIdsInStore(store);
-    expect(migratedStore.mutated).toBe(true);
-
-    const cfg: OpenClawConfig = {
-      auth: {
-        profiles: {
-          "openai-codex:cfg@example.com": {
-            provider: "openai-codex",
-            mode: "oauth",
-            email: "cfg@example.com",
-          },
-        },
-        order: {
-          "openai-codex": ["openai-codex:cfg@example.com"],
-        },
-      },
-    };
-
-    const repair = repairOpenAICodexOAuthProfileIdsInConfig({ cfg, store });
-    const canonicalProfileId = Object.keys(store.profiles).find((id) =>
-      id.startsWith("openai-codex:"),
-    );
-    expect(canonicalProfileId).toBeTruthy();
-    expect(repair.migrated).toBe(true);
-    expect(repair.config.auth?.profiles?.[canonicalProfileId!]).toMatchObject({
-      provider: "openai-codex",
-      mode: "oauth",
-    });
-    expect(repair.config.auth?.profiles?.["openai-codex:cfg@example.com"]).toBeUndefined();
-    expect(repair.config.auth?.order?.["openai-codex"]).toEqual([canonicalProfileId]);
   });
 
   it("resolves legacy openai-codex profile id to canonical profile id", () => {

@@ -2,24 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { expectedOpenAICodexProfileId, makeJwt } from "../test-utils/openai-codex-profile-id.js";
 import { ensureAuthProfileStore } from "./auth-profiles.js";
 import { AUTH_STORE_VERSION, log } from "./auth-profiles/constants.js";
-
-function makeJwt(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" }), "utf8").toString(
-    "base64url",
-  );
-  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  return `${header}.${body}.sig`;
-}
-
-function expectedOpenAICodexProfileId(params: {
-  accountId: string;
-  iss: string;
-  sub: string;
-}): string {
-  return `openai-codex:${params.accountId}:${Buffer.from(params.iss, "utf8").toString("base64url")}:${Buffer.from(params.sub, "utf8").toString("base64url")}`;
-}
 
 describe("ensureAuthProfileStore", () => {
   it("migrates legacy auth.json and deletes it (PR #368)", () => {

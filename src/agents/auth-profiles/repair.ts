@@ -48,6 +48,14 @@ export function suggestOAuthProfileIdForLegacyDefault(params: {
   if (oauthProfiles.length === 0) {
     return null;
   }
+  if (providerKey === "openai-codex") {
+    const compatible = resolveOpenAICodexCompatibleProfileId({
+      cfg: params.cfg,
+      store: params.store,
+      profileId: params.legacyProfileId,
+    });
+    return compatible && compatible !== params.legacyProfileId ? compatible : null;
+  }
 
   const configuredEmail = legacyCfg?.email?.trim();
   if (configuredEmail) {
@@ -77,17 +85,6 @@ export function suggestOAuthProfileIdForLegacyDefault(params: {
   const emailLike = nonLegacy.filter((id) => isEmailLike(getProfileSuffix(id)));
   if (emailLike.length === 1) {
     return emailLike[0] ?? null;
-  }
-
-  if (providerKey === "openai-codex") {
-    const compatible = resolveOpenAICodexCompatibleProfileId({
-      cfg: params.cfg,
-      store: params.store,
-      profileId: params.legacyProfileId,
-    });
-    if (compatible && compatible !== params.legacyProfileId) {
-      return compatible;
-    }
   }
 
   return null;
