@@ -7,6 +7,7 @@ import {
 import { loadConfig, type OpenClawConfig } from "../../config/config.js";
 import { coerceSecretRef } from "../../config/types.secrets.js";
 import { withFileLock } from "../../infra/file-lock.js";
+import { redactIdentifier } from "../../logging/redact-identifier.js";
 import { refreshQwenPortalCredentials } from "../../providers/qwen-portal-oauth.js";
 import { resolveSecretRefString, type SecretRefResolveCache } from "../../secrets/resolve.js";
 import { refreshChutesTokens } from "../chutes-oauth.js";
@@ -93,6 +94,21 @@ function extractErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function sanitizeProfileIdForLog(params: { profileId: string; provider?: string }): string {
+  const inferredProvider = (() => {
+    if (params.provider?.trim()) {
+      return params.provider;
+    }
+    const sep = params.profileId.indexOf(":");
+    return sep > 0 ? params.profileId.slice(0, sep) : "";
+  })();
+  const providerKey = normalizeProviderId(inferredProvider);
+  if (providerKey === "openai-codex") {
+    return redactIdentifier(params.profileId);
+  }
+  return params.profileId;
+}
+
 function shouldUseOpenaiCodexRefreshFallback(params: {
   provider: string;
   credentials: OAuthCredentials;
@@ -140,7 +156,10 @@ function adoptNewerMainOAuthCredential(params: {
       params.store.profiles[params.profileId] = { ...mainCred };
       saveAuthProfileStore(params.store, params.agentDir);
       log.info("adopted newer OAuth credentials from main agent", {
-        profileId: params.profileId,
+        profileId: sanitizeProfileIdForLog({
+          profileId: params.profileId,
+          provider: params.cred.provider,
+        }),
         agentDir: params.agentDir,
         expires: new Date(mainCred.expires).toISOString(),
       });
@@ -149,7 +168,10 @@ function adoptNewerMainOAuthCredential(params: {
   } catch (err) {
     // Best-effort: don't crash if main agent store is missing or unreadable.
     log.debug("adoptNewerMainOAuthCredential failed", {
-      profileId: params.profileId,
+      profileId: sanitizeProfileIdForLog({
+        profileId: params.profileId,
+        provider: params.cred.provider,
+      }),
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -279,7 +301,10 @@ async function resolveProfileSecretString(params: {
         });
       } catch (err) {
         log.debug(params.inlineFailureMessage, {
-          profileId: params.profileId,
+          profileId: sanitizeProfileIdForLog({
+            profileId: params.profileId,
+            provider: params.provider,
+          }),
           provider: params.provider,
           error: err instanceof Error ? err.message : String(err),
         });
@@ -297,7 +322,10 @@ async function resolveProfileSecretString(params: {
       });
     } catch (err) {
       log.debug(params.refFailureMessage, {
-        profileId: params.profileId,
+        profileId: sanitizeProfileIdForLog({
+          profileId: params.profileId,
+          provider: params.provider,
+        }),
         provider: params.provider,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -450,7 +478,10 @@ export async function resolveApiKeyForProfile(
           refreshedStore.profiles[resolvedProfileId] = { ...mainCred };
           saveAuthProfileStore(refreshedStore, params.agentDir);
           log.info("inherited fresh OAuth credentials from main agent", {
-            profileId: resolvedProfileId,
+            profileId: sanitizeProfileIdForLog({
+              profileId: resolvedProfileId,
+              provider: mainCred.provider,
+            }),
             agentDir: params.agentDir,
             expires: new Date(mainCred.expires).toISOString(),
           });
@@ -473,7 +504,7 @@ export async function resolveApiKeyForProfile(
       })
     ) {
       log.warn("openai-codex oauth refresh failed; using cached access token fallback", {
-        profileId,
+        profileId: sanitizeProfileIdForLog({ profileId, provider: cred.provider }),
         provider: cred.provider,
       });
       return buildApiKeyProfileResult({

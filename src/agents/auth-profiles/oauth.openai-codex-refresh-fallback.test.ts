@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { captureEnv } from "../../test-utils/env.js";
+import { log } from "./constants.js";
 import { resolveApiKeyForProfile } from "./oauth.js";
 import {
   clearRuntimeAuthProfileStoreSnapshots,
@@ -96,6 +97,46 @@ describe("resolveApiKeyForProfile openai-codex refresh fallback", () => {
       email: undefined,
     });
     expect(getOAuthApiKeyMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("redacts canonical openai-codex profile ids in refresh fallback logs", async () => {
+    const profileId = "openai-codex:acct_123:aHR0cHM6Ly9hdXRoLm9wZW5haS5jb20:dXNlcl8xMjM0NTY3ODkw";
+    const warnSpy = vi.spyOn(log, "warn").mockImplementation(() => {});
+
+    try {
+      saveAuthProfileStore(
+        createExpiredOauthStore({
+          profileId,
+          provider: "openai-codex",
+        }),
+        agentDir,
+      );
+
+      const result = await resolveApiKeyForProfile({
+        store: ensureAuthProfileStore(agentDir),
+        profileId,
+        agentDir,
+      });
+
+      expect(result).toEqual({
+        apiKey: "cached-access-token",
+        provider: "openai-codex",
+        email: undefined,
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        "openai-codex oauth refresh failed; using cached access token fallback",
+        expect.objectContaining({
+          profileId: expect.stringMatching(/^sha256:[a-f0-9]{12}$/),
+          provider: "openai-codex",
+        }),
+      );
+      const warnPayload = warnSpy.mock.calls[0]?.[1] as
+        | { profileId?: string; provider?: string }
+        | undefined;
+      expect(warnPayload?.profileId).not.toBe(profileId);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("keeps throwing for non-codex providers on the same refresh error", async () => {
