@@ -129,6 +129,25 @@ export function getSkillsSnapshotVersion(workspaceDir?: string): number {
   return Math.max(globalVersion, local);
 }
 
+// Seed a non-zero baseline per process so persisted snapshots from an older
+// process lifetime can be recognized as stale even before any watcher event fires.
+export function ensureSkillsSnapshotVersion(workspaceDir?: string): number {
+  if (!workspaceDir) {
+    if (globalVersion === 0) {
+      globalVersion = bumpVersion(globalVersion);
+    }
+    return globalVersion;
+  }
+  const local = workspaceVersions.get(workspaceDir) ?? 0;
+  const current = Math.max(globalVersion, local);
+  if (current > 0) {
+    return current;
+  }
+  const seededVersion = bumpVersion(0);
+  workspaceVersions.set(workspaceDir, seededVersion);
+  return seededVersion;
+}
+
 export function ensureSkillsWatcher(params: { workspaceDir: string; config?: OpenClawConfig }) {
   const workspaceDir = params.workspaceDir.trim();
   if (!workspaceDir) {
