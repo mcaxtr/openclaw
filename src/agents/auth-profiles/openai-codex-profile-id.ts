@@ -7,6 +7,10 @@ import type { AuthProfileStore, OAuthCredential, ProfileUsageStats } from "./typ
 const OPENAI_CODEX_PROVIDER = "openai-codex";
 const OPENAI_CODEX_AUTH_CLAIM_PATH = "https://api.openai.com/auth";
 const OPENAI_CODEX_DEPRECATED_PROFILE_ID = "openai-codex:codex-cli";
+const OPENAI_CODEX_LEGACY_DEFAULT_PROFILE_ID = "openai-codex:default";
+const MAX_OPENAI_CODEX_JWT_LENGTH = 16_384;
+const MAX_OPENAI_CODEX_JWT_PAYLOAD_SEGMENT_LENGTH = 8_192;
+const MAX_OPENAI_CODEX_DECODED_PAYLOAD_LENGTH = 16_384;
 
 type JwtPayload = Record<string, unknown>;
 
@@ -24,19 +28,29 @@ function decodeBase64UrlSegment(value: string): string {
 
 function decodeJwtPayload(token: string): JwtPayload | null {
   const trimmed = token.trim();
-  if (!trimmed) {
+  if (!trimmed || trimmed.length > MAX_OPENAI_CODEX_JWT_LENGTH) {
     return null;
   }
-  const parts = trimmed.split(".");
-  if (parts.length !== 3) {
+  const firstDot = trimmed.indexOf(".");
+  if (firstDot <= 0) {
     return null;
   }
-  const payloadSegment = parts[1] ?? "";
-  if (!payloadSegment) {
+  const secondDot = trimmed.indexOf(".", firstDot + 1);
+  if (secondDot <= firstDot + 1) {
+    return null;
+  }
+  if (trimmed.indexOf(".", secondDot + 1) !== -1) {
+    return null;
+  }
+  const payloadSegment = trimmed.slice(firstDot + 1, secondDot);
+  if (!payloadSegment || payloadSegment.length > MAX_OPENAI_CODEX_JWT_PAYLOAD_SEGMENT_LENGTH) {
     return null;
   }
   try {
     const decoded = decodeBase64UrlSegment(payloadSegment);
+    if (!decoded || decoded.length > MAX_OPENAI_CODEX_DECODED_PAYLOAD_LENGTH) {
+      return null;
+    }
     const parsed = JSON.parse(decoded) as unknown;
     if (!parsed || typeof parsed !== "object") {
       return null;
@@ -266,6 +280,9 @@ export function migrateOpenAICodexProfileIdsInStore(store: AuthProfileStore): {
     if (normalizeProviderId(String(rawCredential.provider ?? "")) !== OPENAI_CODEX_PROVIDER) {
       continue;
     }
+    if (isOpenAICodexCanonicalProfileId(profileId)) {
+      continue;
+    }
     const canonicalProfileId = deriveOpenAICodexCanonicalProfileId(rawCredential);
     if (!canonicalProfileId || canonicalProfileId === profileId) {
       continue;
@@ -317,6 +334,13 @@ function listOpenAICodexOAuthProfiles(store: AuthProfileStore): string[] {
   );
 }
 
+function isStrictLegacyOpenAICodexProfileId(profileId: string): boolean {
+  return (
+    profileId === OPENAI_CODEX_LEGACY_DEFAULT_PROFILE_ID ||
+    profileId === OPENAI_CODEX_DEPRECATED_PROFILE_ID
+  );
+}
+
 export function resolveOpenAICodexCompatibleProfileId(params: {
   store: AuthProfileStore;
   profileId: string;
@@ -340,18 +364,23 @@ export function resolveOpenAICodexCompatibleProfileId(params: {
   const suffixEmail = looksEmailLike(suffix) ? suffix : undefined;
   const candidateEmail = cfgEmail || suffixEmail;
   if (candidateEmail) {
-    const byEmail = oauthProfiles.find((id) => {
+    const byEmail = oauthProfiles.filter((id) => {
       const cred = params.store.profiles[id];
       return cred?.type === "oauth" && cred.email?.trim() === candidateEmail;
     });
-    if (byEmail) {
-      return byEmail;
+    if (byEmail.length === 1) {
+      return byEmail[0] ?? null;
+    }
+    if (byEmail.length > 1) {
+      return null;
     }
   }
 
-  const lastGood = params.store.lastGood?.[OPENAI_CODEX_PROVIDER];
-  if (lastGood && oauthProfiles.includes(lastGood)) {
-    return lastGood;
+  if (isStrictLegacyOpenAICodexProfileId(params.profileId)) {
+    const lastGood = params.store.lastGood?.[OPENAI_CODEX_PROVIDER];
+    if (lastGood && oauthProfiles.includes(lastGood)) {
+      return lastGood;
+    }
   }
 
   if (canonicalProfiles.length === 1) {
