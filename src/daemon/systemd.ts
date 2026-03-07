@@ -527,13 +527,9 @@ export async function installSystemdService({
     throw new Error(`systemctl enable failed: ${enable.stderr || enable.stdout}`.trim());
   }
 
-  const restart = await execSystemctlUser(env, ["restart", unitName]);
-  if (restart.code !== 0) {
-    throw new Error(`systemctl restart failed: ${restart.stderr || restart.stdout}`.trim());
-  }
-
-  // When OPENCLAW_SYSTEMD_UNIT overrides the name, disable the previous
-  // profile-based unit so two units don't compete for the same gateway.
+  // When OPENCLAW_SYSTEMD_UNIT overrides the name, stop the previous
+  // profile-based unit before restarting the new one so both don't
+  // compete for the same port/lock.
   const defaultName = resolveGatewaySystemdServiceName(env.OPENCLAW_PROFILE);
   if (serviceName !== defaultName) {
     const prevUnit = `${defaultName}.service`;
@@ -544,6 +540,11 @@ export async function installSystemdService({
     } catch {
       // Previous unit may not exist — that's fine.
     }
+  }
+
+  const restart = await execSystemctlUser(env, ["restart", unitName]);
+  if (restart.code !== 0) {
+    throw new Error(`systemctl restart failed: ${restart.stderr || restart.stdout}`.trim());
   }
 
   // Ensure we don't end up writing to a clack spinner line (wizards show progress without a newline).
