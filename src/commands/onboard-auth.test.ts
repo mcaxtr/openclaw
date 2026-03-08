@@ -44,6 +44,22 @@ import {
   setupAuthTestEnv,
 } from "./test-wizard-helpers.js";
 
+function makeJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" }), "utf8").toString(
+    "base64url",
+  );
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `${header}.${body}.sig`;
+}
+
+function expectedOpenAICodexProfileId(params: {
+  accountId: string;
+  iss: string;
+  sub: string;
+}): string {
+  return `openai-codex:${params.accountId}:${Buffer.from(params.iss, "utf8").toString("base64url")}:${Buffer.from(params.sub, "utf8").toString("base64url")}`;
+}
+
 function createLegacyProviderConfig(params: {
   providerId: string;
   api: ModelApi;
@@ -137,19 +153,29 @@ describe("writeOAuthCredentials", () => {
 
     const creds = {
       refresh: "refresh-token",
-      access: "access-token",
+      access: makeJwt({
+        iss: "https://auth.openai.com",
+        sub: "sub-main",
+        "https://api.openai.com/auth": { chatgpt_account_id: "acct-main" },
+      }),
       expires: Date.now() + 60_000,
+      accountId: "acct-main",
     } satisfies OAuthCredentials;
+    const profileId = expectedOpenAICodexProfileId({
+      accountId: "acct-main",
+      iss: "https://auth.openai.com",
+      sub: "sub-main",
+    });
 
     await writeOAuthCredentials("openai-codex", creds);
 
     const parsed = await readAuthProfilesForAgent<{
       profiles?: Record<string, OAuthCredentials & { type?: string }>;
     }>(env.agentDir);
-    expect(parsed.profiles?.["openai-codex:default"]).toMatchObject({
+    expect(parsed.profiles?.[profileId]).toMatchObject({
       refresh: "refresh-token",
-      access: "access-token",
       type: "oauth",
+      accountId: "acct-main",
     });
 
     await expect(
@@ -173,9 +199,19 @@ describe("writeOAuthCredentials", () => {
 
     const creds = {
       refresh: "refresh-sync",
-      access: "access-sync",
+      access: makeJwt({
+        iss: "https://auth.openai.com",
+        sub: "sub-sync",
+        "https://api.openai.com/auth": { chatgpt_account_id: "acct-sync" },
+      }),
       expires: Date.now() + 60_000,
+      accountId: "acct-sync",
     } satisfies OAuthCredentials;
+    const profileId = expectedOpenAICodexProfileId({
+      accountId: "acct-sync",
+      iss: "https://auth.openai.com",
+      sub: "sub-sync",
+    });
 
     await writeOAuthCredentials("openai-codex", creds, undefined, {
       syncSiblingAgents: true,
@@ -186,10 +222,10 @@ describe("writeOAuthCredentials", () => {
       const parsed = JSON.parse(raw) as {
         profiles?: Record<string, OAuthCredentials & { type?: string }>;
       };
-      expect(parsed.profiles?.["openai-codex:default"]).toMatchObject({
+      expect(parsed.profiles?.[profileId]).toMatchObject({
         refresh: "refresh-sync",
-        access: "access-sync",
         type: "oauth",
+        accountId: "acct-sync",
       });
     }
   });
@@ -208,9 +244,19 @@ describe("writeOAuthCredentials", () => {
 
     const creds = {
       refresh: "refresh-kid",
-      access: "access-kid",
+      access: makeJwt({
+        iss: "https://auth.openai.com",
+        sub: "sub-kid",
+        "https://api.openai.com/auth": { chatgpt_account_id: "acct-kid" },
+      }),
       expires: Date.now() + 60_000,
+      accountId: "acct-kid",
     } satisfies OAuthCredentials;
+    const profileId = expectedOpenAICodexProfileId({
+      accountId: "acct-kid",
+      iss: "https://auth.openai.com",
+      sub: "sub-kid",
+    });
 
     await writeOAuthCredentials("openai-codex", creds, kidAgentDir);
 
@@ -218,9 +264,9 @@ describe("writeOAuthCredentials", () => {
     const kidParsed = JSON.parse(kidRaw) as {
       profiles?: Record<string, OAuthCredentials & { type?: string }>;
     };
-    expect(kidParsed.profiles?.["openai-codex:default"]).toMatchObject({
-      access: "access-kid",
+    expect(kidParsed.profiles?.[profileId]).toMatchObject({
       type: "oauth",
+      accountId: "acct-kid",
     });
 
     await expect(fs.readFile(authProfilePathFor(mainAgentDir), "utf8")).rejects.toThrow();
@@ -241,9 +287,19 @@ describe("writeOAuthCredentials", () => {
 
     const creds = {
       refresh: "refresh-ext",
-      access: "access-ext",
+      access: makeJwt({
+        iss: "https://auth.openai.com",
+        sub: "sub-ext",
+        "https://api.openai.com/auth": { chatgpt_account_id: "acct-ext" },
+      }),
       expires: Date.now() + 60_000,
+      accountId: "acct-ext",
     } satisfies OAuthCredentials;
+    const profileId = expectedOpenAICodexProfileId({
+      accountId: "acct-ext",
+      iss: "https://auth.openai.com",
+      sub: "sub-ext",
+    });
 
     await writeOAuthCredentials("openai-codex", creds, extKid, {
       syncSiblingAgents: true,
@@ -255,10 +311,10 @@ describe("writeOAuthCredentials", () => {
       const parsed = JSON.parse(raw) as {
         profiles?: Record<string, OAuthCredentials & { type?: string }>;
       };
-      expect(parsed.profiles?.["openai-codex:default"]).toMatchObject({
+      expect(parsed.profiles?.[profileId]).toMatchObject({
         refresh: "refresh-ext",
-        access: "access-ext",
         type: "oauth",
+        accountId: "acct-ext",
       });
     }
 
