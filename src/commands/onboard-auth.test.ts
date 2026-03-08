@@ -427,6 +427,36 @@ describe("applyAuthProfileConfig", () => {
 
     expect(next.auth?.order).toBeUndefined();
   });
+
+  it("creates provider order for openai-codex re-login without explicit order", () => {
+    const next = applyAuthProfileConfig(
+      {
+        auth: {
+          profiles: {
+            "openai-codex:default": { provider: "openai-codex", mode: "oauth" },
+          },
+        },
+      },
+      {
+        profileId: expectedOpenAICodexProfileId({
+          accountId: "acct-new",
+          iss: "https://auth.openai.com",
+          sub: "sub-new",
+        }),
+        provider: "openai-codex",
+        mode: "oauth",
+      },
+    );
+
+    expect(next.auth?.order?.["openai-codex"]).toEqual([
+      expectedOpenAICodexProfileId({
+        accountId: "acct-new",
+        iss: "https://auth.openai.com",
+        sub: "sub-new",
+      }),
+      "openai-codex:default",
+    ]);
+  });
 });
 
 describe("applyMinimaxApiConfig", () => {
