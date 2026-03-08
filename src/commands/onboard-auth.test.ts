@@ -168,6 +168,34 @@ describe("writeOAuthCredentials", () => {
     ).rejects.toThrow();
   });
 
+  it("falls back to the legacy profile id when codex accountId is not safe", async () => {
+    const env = await setupAuthTestEnv("openclaw-oauth-unsafe-account-");
+    lifecycle.setStateDir(env.stateDir);
+
+    const creds = {
+      email: "unsafe@example.com",
+      refresh: "refresh-token",
+      access: makeJwt({
+        iss: "https://auth.openai.com",
+        sub: "sub-unsafe",
+        "https://api.openai.com/auth": { chatgpt_account_id: "acct / unsafe" },
+      }),
+      expires: Date.now() + 60_000,
+      accountId: "acct / unsafe",
+    } satisfies OAuthCredentials;
+
+    await writeOAuthCredentials("openai-codex", creds);
+
+    const parsed = await readAuthProfilesForAgent<{
+      profiles?: Record<string, OAuthCredentials & { type?: string }>;
+    }>(env.agentDir);
+    expect(parsed.profiles?.["openai-codex:unsafe@example.com"]).toMatchObject({
+      email: "unsafe@example.com",
+      refresh: "refresh-token",
+      type: "oauth",
+    });
+  });
+
   it("writes OAuth credentials to all sibling agent dirs when syncSiblingAgents=true", async () => {
     tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-oauth-sync-"));
     process.env.OPENCLAW_STATE_DIR = tempStateDir;

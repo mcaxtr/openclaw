@@ -5,6 +5,7 @@ const OPENAI_CODEX_AUTH_CLAIM_PATH = "https://api.openai.com/auth";
 const MAX_JWT_LENGTH = 16_384;
 const MAX_JWT_PAYLOAD_SEGMENT_LENGTH = 8_192;
 const MAX_JWT_DECODED_PAYLOAD_LENGTH = 16_384;
+const SAFE_ACCOUNT_ID_SEGMENT = /^[A-Za-z0-9._-]+$/;
 
 type JwtPayload = Record<string, unknown>;
 
@@ -46,13 +47,12 @@ function resolveAccountIdFromPayload(payload: JwtPayload): string | null {
   return typeof accountId === "string" && accountId.trim() ? accountId.trim() : null;
 }
 
-function sanitizeAccountIdSegment(raw: string): string {
-  const cleaned = raw
-    .trim()
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^-+/, "")
-    .replace(/-+$/, "");
-  return cleaned || "unknown";
+function resolveAccountIdSegment(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed || !SAFE_ACCOUNT_ID_SEGMENT.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
 }
 
 export function deriveOpenAICodexCanonicalProfileId(credential: {
@@ -83,12 +83,12 @@ export function deriveOpenAICodexCanonicalProfileId(credential: {
     typeof credential.accountId === "string" && credential.accountId.trim()
       ? credential.accountId.trim()
       : resolveAccountIdFromPayload(payload);
-  if (!accountId) {
+  const accountIdSegment = accountId ? resolveAccountIdSegment(accountId) : null;
+  if (!accountIdSegment) {
     return null;
   }
 
-  return `${OPENAI_CODEX_PROVIDER}:${sanitizeAccountIdSegment(accountId)}:${Buffer.from(
-    iss,
-    "utf8",
-  ).toString("base64url")}:${Buffer.from(sub, "utf8").toString("base64url")}`;
+  return `${OPENAI_CODEX_PROVIDER}:${accountIdSegment}:${Buffer.from(iss, "utf8").toString(
+    "base64url",
+  )}:${Buffer.from(sub, "utf8").toString("base64url")}`;
 }

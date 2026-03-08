@@ -42,7 +42,7 @@ describe("deriveOpenAICodexCanonicalProfileId", () => {
     );
   });
 
-  it("sanitizes account ids before building the canonical profile id", () => {
+  it("returns null when the account id contains unsafe characters", () => {
     expect(
       deriveOpenAICodexCanonicalProfileId({
         provider: "openai-codex",
@@ -53,9 +53,7 @@ describe("deriveOpenAICodexCanonicalProfileId", () => {
         }),
         accountId: "acct / special?",
       }),
-    ).toBe(
-      `openai-codex:acct-special:${Buffer.from("https://auth.openai.com", "utf8").toString("base64url")}:${Buffer.from("user_special", "utf8").toString("base64url")}`,
-    );
+    ).toBeNull();
   });
 
   it("returns null for malformed tokens or non-codex providers", () => {
