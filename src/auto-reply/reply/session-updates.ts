@@ -117,6 +117,8 @@ export async function drainFormattedSystemEvents(params: {
     .join("\n");
 }
 
+const FORBIDDEN_STORE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+
 export async function ensureSkillSnapshot(params: {
   sessionEntry?: SessionEntry;
   sessionStore?: Record<string, SessionEntry>;
@@ -154,6 +156,15 @@ export async function ensureSkillSnapshot(params: {
     cfg,
     skillFilter,
   } = params;
+
+  // Guard against prototype pollution if sessionKey is ever attacker-influenced.
+  if (sessionKey && FORBIDDEN_STORE_KEYS.has(sessionKey)) {
+    return {
+      sessionEntry,
+      skillsSnapshot: sessionEntry?.skillsSnapshot,
+      systemSent: sessionEntry?.systemSent ?? false,
+    };
+  }
 
   let nextEntry = sessionEntry;
   let systemSent = sessionEntry?.systemSent ?? false;
@@ -258,7 +269,7 @@ export async function incrementCompactionCount(params: {
     now = Date.now(),
     tokensAfter,
   } = params;
-  if (!sessionStore || !sessionKey) {
+  if (!sessionStore || !sessionKey || FORBIDDEN_STORE_KEYS.has(sessionKey)) {
     return undefined;
   }
   const entry = sessionStore[sessionKey] ?? sessionEntry;
