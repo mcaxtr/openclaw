@@ -175,7 +175,10 @@ export async function ensureSkillSnapshot(params: {
     nextEntry?.skillsSnapshot?.version ??
     (sessionStore && sessionKey ? sessionStore[sessionKey]?.skillsSnapshot?.version : undefined) ??
     0;
-  const shouldRefreshSnapshot = persistedVersion < snapshotVersion;
+  // Treat any version mismatch as stale — not just `<`. After a restart the
+  // persisted version can exceed the freshly seeded in-memory value (clock
+  // skew, burst increments), so equality is the only safe "fresh" signal.
+  const shouldRefreshSnapshot = persistedVersion !== snapshotVersion;
 
   if (isFirstTurnInSession && sessionStore && sessionKey) {
     const current = nextEntry ??

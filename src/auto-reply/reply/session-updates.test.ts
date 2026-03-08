@@ -126,6 +126,31 @@ describe("ensureSkillSnapshot", () => {
     expect(buildWorkspaceSkillSnapshot).toHaveBeenCalledOnce();
   });
 
+  it("rebuilds when persisted version exceeds the seeded version (clock skew / restart)", async () => {
+    vi.mocked(ensureSkillsSnapshotVersion).mockReturnValue(currentVersion);
+
+    const result = await ensureSkillSnapshot({
+      sessionEntry: {
+        sessionId: "test-session",
+        updatedAt: Date.now(),
+        systemSent: true,
+        skillsSnapshot: {
+          prompt: "FUTURE_SKILLS",
+          skills: [{ name: "future-skill" }],
+          version: currentVersion + 5_000,
+        },
+      },
+      sessionStore: {},
+      sessionKey: "test-key",
+      isFirstTurnInSession: false,
+      workspaceDir,
+      cfg,
+    });
+
+    expect(result.skillsSnapshot?.prompt).toBe("FRESH_SNAPSHOT");
+    expect(buildWorkspaceSkillSnapshot).toHaveBeenCalledOnce();
+  });
+
   it("checks the stored snapshot version when sessionEntry is missing", async () => {
     vi.mocked(ensureSkillsSnapshotVersion).mockReturnValue(currentVersion);
 
