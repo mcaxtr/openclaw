@@ -63,150 +63,20 @@ function isValidMedia(
   return false;
 }
 
-type ExtractedMediaCandidate = {
-  candidate: string;
-  remainder: string;
-  dropRemainder: boolean;
-};
-
-function looksLikeStructuredTail(value: string): boolean {
-  return (
-    /^\{["']/.test(value) || /^\[(?:\{|"|')/.test(value) || /^,\s*["'][^"'\\]+["']\s*:/.test(value)
-  );
-}
-
-function findStructuredTailStart(token: string): number | undefined {
-  for (let index = 1; index < token.length; index++) {
-    if (looksLikeStructuredTail(token.slice(index))) {
-      return index;
-    }
-  }
-  return undefined;
-}
-
-function hasStrongMediaTerminator(candidate: string): boolean {
-  return /^https?:\/\//i.test(candidate) || HAS_FILE_EXT.test(candidate);
-}
-
-function looksCompleteCandidate(candidate: string): boolean {
-  const trimmed = candidate.trim();
-  if (!trimmed) {
-    return false;
-  }
-  if (hasStrongMediaTerminator(trimmed)) {
-    return true;
-  }
-  const lastChar = trimmed[trimmed.length - 1];
-  return /[A-Za-z0-9~]/.test(lastChar);
-}
-
-function isStandaloneMediaToken(token: string): boolean {
-  const candidate = normalizeMediaSource(cleanCandidate(token));
-  return isValidMedia(candidate, { allowBareFilename: true });
-}
-
-function looksLikePathContinuationToken(token: string): boolean {
-  const candidate = normalizeMediaSource(cleanCandidate(token));
-  if (!candidate) {
-    return false;
-  }
-  return (
-    candidate.includes("/") ||
-    candidate.includes("\\") ||
-    candidate.startsWith("~") ||
-    candidate.startsWith(".") ||
-    WINDOWS_DRIVE_RE.test(candidate) ||
-    HAS_FILE_EXT.test(candidate)
-  );
-}
-
-function shouldStopBeforeNextToken(candidate: string, nextToken: string): boolean {
-  if (looksLikeStructuredTail(nextToken)) {
-    return true;
-  }
-  if (!hasStrongMediaTerminator(candidate)) {
-    return false;
-  }
-  if (isStandaloneMediaToken(nextToken)) {
-    return true;
-  }
-  return !looksLikePathContinuationToken(nextToken);
-}
-
-function extractLeadingMediaCandidate(payload: string): ExtractedMediaCandidate | undefined {
-  const trimmed = payload.trimStart();
-  if (!trimmed) {
+function unwrapQuoted(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length < 2) {
     return undefined;
   }
-
-  const firstChar = trimmed[0];
-  if (firstChar === `"` || firstChar === "'" || firstChar === "`") {
-    const closingIndex = trimmed.indexOf(firstChar, 1);
-    if (closingIndex > 0) {
-      const candidate = normalizeMediaSource(trimmed.slice(1, closingIndex).trim());
-      if (isValidMedia(candidate, { allowSpaces: true, allowBareFilename: true })) {
-        const remainder = trimmed.slice(closingIndex + 1);
-        return {
-          candidate,
-          remainder,
-          dropRemainder: looksLikeStructuredTail(remainder.trimStart()),
-        };
-      }
-    }
-  }
-
-  const tokens = Array.from(trimmed.matchAll(/\S+/g));
-  if (tokens.length === 0) {
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if (first !== last) {
     return undefined;
   }
-
-  let best: { candidate: string; end: number } | undefined;
-  for (let index = 0; index < tokens.length; index++) {
-    const tokenMatch = tokens[index];
-    const token = tokenMatch[0];
-    const tokenStart = tokenMatch.index ?? 0;
-    const structuredTailStart = findStructuredTailStart(token);
-    const tokenHead =
-      structuredTailStart === undefined ? token : token.slice(0, structuredTailStart);
-    const tokenEnd = tokenStart + tokenHead.length;
-    if (!tokenHead) {
-      break;
-    }
-
-    const candidate = normalizeMediaSource(cleanCandidate(trimmed.slice(0, tokenEnd)));
-    if (isValidMedia(candidate, { allowSpaces: true, allowBareFilename: true })) {
-      best = { candidate, end: tokenStart + token.length };
-    }
-
-    if (structuredTailStart !== undefined) {
-      if (best && looksCompleteCandidate(best.candidate)) {
-        return {
-          candidate: best.candidate,
-          remainder: trimmed.slice(best.end),
-          dropRemainder: true,
-        };
-      }
-      return undefined;
-    }
-
-    const nextToken = tokens[index + 1]?.[0];
-    if (best && nextToken && shouldStopBeforeNextToken(best.candidate, nextToken)) {
-      return {
-        candidate: best.candidate,
-        remainder: trimmed.slice(best.end),
-        dropRemainder: false,
-      };
-    }
-  }
-
-  if (!best) {
+  if (first !== `"` && first !== "'" && first !== "`") {
     return undefined;
   }
-  return {
-    candidate: best.candidate,
-    remainder: trimmed.slice(best.end),
-    dropRemainder: false,
-  };
+  return trimmed.slice(1, -1).trim();
 }
 
 function mayContainFenceMarkers(input: string): boolean {
@@ -278,37 +148,58 @@ export function splitMediaFromOutput(raw: string): {
       pieces.push(line.slice(cursor, start));
 
       const payload = match[1];
+      const unwrapped = unwrapQuoted(payload);
+      const payloadValue = unwrapped ?? payload;
+      const parts = unwrapped ? [unwrapped] : payload.split(/\s+/).filter(Boolean);
+      const mediaStartIndex = media.length;
+      let validCount = 0;
+      const invalidParts: string[] = [];
       let hasValidMedia = false;
-      let visibleTail = "";
-      let remainingPayload = payload;
-      while (remainingPayload.trim()) {
-        const extracted = extractLeadingMediaCandidate(remainingPayload);
-        if (!extracted) {
-          visibleTail = remainingPayload;
-          break;
+      for (const part of parts) {
+        const candidate = normalizeMediaSource(cleanCandidate(part));
+        if (isValidMedia(candidate, unwrapped ? { allowSpaces: true } : undefined)) {
+          media.push(candidate);
+          hasValidMedia = true;
+          foundMediaToken = true;
+          validCount += 1;
+        } else {
+          invalidParts.push(part);
         }
-        media.push(extracted.candidate);
-        hasValidMedia = true;
-        foundMediaToken = true;
-        if (!extracted.remainder.trim() || extracted.dropRemainder) {
-          visibleTail = "";
-          break;
-        }
-        if (!extractLeadingMediaCandidate(extracted.remainder)) {
-          visibleTail = extracted.remainder;
-          break;
-        }
-        remainingPayload = extracted.remainder;
       }
 
-      const trimmedPayload = payload.trim();
+      const trimmedPayload = payloadValue.trim();
       const looksLikeLocalPath =
         isLikelyLocalPath(trimmedPayload) || trimmedPayload.startsWith("file://");
+      if (
+        !unwrapped &&
+        validCount === 1 &&
+        invalidParts.length > 0 &&
+        /\s/.test(payloadValue) &&
+        looksLikeLocalPath
+      ) {
+        const fallback = normalizeMediaSource(cleanCandidate(payloadValue));
+        if (isValidMedia(fallback, { allowSpaces: true })) {
+          media.splice(mediaStartIndex, media.length - mediaStartIndex, fallback);
+          hasValidMedia = true;
+          foundMediaToken = true;
+          validCount = 1;
+          invalidParts.length = 0;
+        }
+      }
+
+      if (!hasValidMedia) {
+        const fallback = normalizeMediaSource(cleanCandidate(payloadValue));
+        if (isValidMedia(fallback, { allowSpaces: true, allowBareFilename: true })) {
+          media.push(fallback);
+          hasValidMedia = true;
+          foundMediaToken = true;
+          invalidParts.length = 0;
+        }
+      }
 
       if (hasValidMedia) {
-        const cleanedTail = visibleTail.trim();
-        if (cleanedTail) {
-          pieces.push(cleanedTail);
+        if (invalidParts.length > 0) {
+          pieces.push(invalidParts.join(" "));
         }
       } else if (looksLikeLocalPath) {
         // Strip MEDIA: lines with local paths even when invalid (e.g. absolute paths
