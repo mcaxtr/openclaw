@@ -6,6 +6,23 @@ const mockLoad = vi.fn().mockReturnValue(null);
 const mockMatch = vi.fn().mockReturnValue(false);
 const mockTouch = vi.fn();
 
+const { MatrixClientCtorMock, MockMatrixClient, getWhoAmIMock } = vi.hoisted(() => {
+  const MatrixClientCtorMock = vi.fn();
+  const getWhoAmIMock = vi.fn();
+
+  class MockMatrixClient {
+    constructor(...args: unknown[]) {
+      MatrixClientCtorMock(...args);
+    }
+
+    getWhoAmI(...args: unknown[]) {
+      return getWhoAmIMock(...args);
+    }
+  }
+
+  return { MatrixClientCtorMock, MockMatrixClient, getWhoAmIMock };
+});
+
 vi.mock("../credentials.js", () => ({
   loadMatrixCredentials: (...args: unknown[]) => mockLoad(...args),
   saveMatrixCredentials: (...args: unknown[]) => mockSave(...args),
@@ -19,31 +36,17 @@ vi.mock("../../runtime.js", () => ({
   }),
 }));
 
+vi.mock("../sdk-runtime.js", () => ({
+  loadMatrixSdk: () => ({
+    MatrixClient: MockMatrixClient,
+  }),
+}));
+
 vi.mock("./logging.js", () => ({
   ensureMatrixSdkLoggingConfigured: vi.fn(),
 }));
 
-vi.mock("@vector-im/matrix-bot-sdk", () => ({
-  MatrixClient: class MockMatrixClient {},
-}));
-
-const mockFetchGuard = vi.fn();
-vi.mock("openclaw/plugin-sdk", () => ({
-  fetchWithSsrFGuard: (...args: unknown[]) => mockFetchGuard(...args),
-}));
-
-function mockGuardedResponse(response: {
-  ok: boolean;
-  json?: () => Promise<unknown>;
-  text?: () => Promise<string>;
-}) {
-  mockFetchGuard.mockResolvedValue({
-    response,
-    release: vi.fn().mockResolvedValue(undefined),
-  });
-}
-
-describe("resolveMatrixAuth — token-only auth path", () => {
+describe("resolveMatrixAuth token-only auth", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -51,13 +54,10 @@ describe("resolveMatrixAuth — token-only auth path", () => {
     mockMatch.mockReturnValue(false);
   });
 
-  it("includes deviceId from whoami when saving credentials", async () => {
-    mockGuardedResponse({
-      ok: true,
-      json: async () => ({
-        user_id: "@bot:example.org",
-        device_id: "TESTDEVICE123",
-      }),
+  it("saves deviceId from whoami when credentials are token-only", async () => {
+    getWhoAmIMock.mockResolvedValue({
+      user_id: "@bot:example.org",
+      device_id: "TESTDEVICE123",
     });
 
     const { resolveMatrixAuth } = await import("./config.js");
@@ -73,6 +73,10 @@ describe("resolveMatrixAuth — token-only auth path", () => {
 
     await resolveMatrixAuth({ cfg, env: {} as NodeJS.ProcessEnv });
 
+    expect(MatrixClientCtorMock).toHaveBeenCalledWith(
+      "https://matrix.example.org",
+      "test-token-123",
+    );
     expect(mockSave).toHaveBeenCalledOnce();
     const [savedCreds] = mockSave.mock.calls[0] as [Record<string, unknown>];
     expect(savedCreds).toEqual({
@@ -83,13 +87,10 @@ describe("resolveMatrixAuth — token-only auth path", () => {
     });
   });
 
-  it("returns correct userId from whoami in token-only auth", async () => {
-    mockGuardedResponse({
-      ok: true,
-      json: async () => ({
-        user_id: "@fetched:example.org",
-        device_id: "DEV456",
-      }),
+  it("returns the userId from whoami in token-only auth", async () => {
+    getWhoAmIMock.mockResolvedValue({
+      user_id: "@fetched:example.org",
+      device_id: "DEV456",
     });
 
     const { resolveMatrixAuth } = await import("./config.js");
@@ -110,10 +111,9 @@ describe("resolveMatrixAuth — token-only auth path", () => {
     expect(auth.accessToken).toBe("test-token-123");
   });
 
-  it("throws when whoami returns non-ok response", async () => {
-    mockGuardedResponse({
-      ok: false,
-      text: async () => "M_UNKNOWN_TOKEN: Invalid access token",
+  it("throws when whoami does not return a user_id", async () => {
+    getWhoAmIMock.mockResolvedValue({
+      device_id: "DEV456",
     });
 
     const { resolveMatrixAuth } = await import("./config.js");
@@ -128,7 +128,7 @@ describe("resolveMatrixAuth — token-only auth path", () => {
     } as CoreConfig;
 
     await expect(resolveMatrixAuth({ cfg, env: {} as NodeJS.ProcessEnv })).rejects.toThrow(
-      "Matrix whoami failed",
+      "Matrix whoami did not return a user_id",
     );
   });
 });
